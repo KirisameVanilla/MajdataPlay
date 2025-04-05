@@ -36,6 +36,7 @@ namespace MajdataPlay.List
                 MajInstances.AudioManager.PlaySFX("bgm_select.mp3", true);
                 MajInstances.AudioManager.PlaySFX("SelectSong.wav");
             }
+            MajInstances.MessagePanelController.Notify("≤‚ ‘");
         }
         async UniTaskVoid InitializeCoverListAsync()
         {

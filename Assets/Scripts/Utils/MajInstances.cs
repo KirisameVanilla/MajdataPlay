@@ -73,6 +73,15 @@ namespace MajdataPlay.Utils
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set => Majdata<LightManager>.Instance = value;
         }
+
+        public static MessagePanelController MessagePanelController
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Majdata<MessagePanelController>.Instance!;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Majdata<MessagePanelController>.Instance = value;
+        }
+
         internal static GameUpdater GameUpdater
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
