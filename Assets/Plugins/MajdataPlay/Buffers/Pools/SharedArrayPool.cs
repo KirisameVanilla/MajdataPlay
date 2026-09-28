@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 #nullable enable
-namespace MajdataPlay.Buffers.Pool
+namespace MajdataPlay.Buffers.Pools
 {
     internal class SharedArrayPool<T> : ArrayPool<T>
     {

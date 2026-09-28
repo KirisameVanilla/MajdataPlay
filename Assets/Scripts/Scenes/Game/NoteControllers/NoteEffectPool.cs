@@ -41,9 +41,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
         TouchFeedbackDisplayer[] _touchFeedbackEffects = new TouchFeedbackDisplayer[33];
 
-        TapEffectDisplayer[] _rentedArrayForGeneratedTapEffectDisplayers = Array.Empty<TapEffectDisplayer>();
-        HoldEffectDisplayer[] _rentedArrayForGeneratedHoldEffectDisplayers = Array.Empty<HoldEffectDisplayer>();
-        TouchEffectDisplayer[] _rentedArrayForGeneratedTouchEffectDisplayers = Array.Empty<TouchEffectDisplayer>();
+        PooledArray<TapEffectDisplayer> _rentedArrayForGeneratedTapEffectDisplayers = default;
+        PooledArray<HoldEffectDisplayer> _rentedArrayForGeneratedHoldEffectDisplayers = default;
+        PooledArray<TouchEffectDisplayer> _rentedArrayForGeneratedTouchEffectDisplayers = default;
 
         ReadOnlyMemory<TapEffectDisplayer> _generatedTapEffectDisplayers = Array.Empty<TapEffectDisplayer>();
         ReadOnlyMemory<HoldEffectDisplayer> _generatedHoldEffectDisplayers = Array.Empty<HoldEffectDisplayer>();
@@ -82,8 +82,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         void OnDestroy()
         {
             Majdata<NoteEffectPool>.Free();
-            Pool<TapEffectDisplayer>.ReturnArray(_rentedArrayForGeneratedTapEffectDisplayers);
-            Pool<TouchEffectDisplayer>.ReturnArray(_rentedArrayForGeneratedTouchEffectDisplayers);
+            _rentedArrayForGeneratedTapEffectDisplayers.Dispose();
+            _rentedArrayForGeneratedTouchEffectDisplayers.Dispose();
+            _rentedArrayForGeneratedHoldEffectDisplayers.Dispose();
         }
         internal void Init()
         {
@@ -92,9 +93,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 return;
             }
             _isInited = false;
-            using var generatedTapEffectDisplayers = new RentedList<TapEffectDisplayer>();
-            using var generatedHoldEffectDisplayers = new RentedList<HoldEffectDisplayer>();
-            using var generatedTouchEffectDisplayers = new RentedList<TouchEffectDisplayer>();
+            using var generatedTapEffectDisplayers = new PooledList<TapEffectDisplayer>();
+            using var generatedHoldEffectDisplayers = new PooledList<HoldEffectDisplayer>();
+            using var generatedTouchEffectDisplayers = new PooledList<TouchEffectDisplayer>();
             var tapParent = transform.GetChild(0);
             var touchParent = transform.GetChild(1);
             var touchHoldParent = transform.GetChild(2);
@@ -208,9 +209,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 obj.transform.localScale = new Vector3(0.5f, 0.5f, 1);
                 _touchFeedbackEffects[i] = displayer;
             }
-            _rentedArrayForGeneratedTapEffectDisplayers = Pool<TapEffectDisplayer>.RentArray(generatedTapEffectDisplayers.Count);
-            _rentedArrayForGeneratedHoldEffectDisplayers = Pool<HoldEffectDisplayer>.RentArray(generatedHoldEffectDisplayers.Count);
-            _rentedArrayForGeneratedTouchEffectDisplayers = Pool<TouchEffectDisplayer>.RentArray(generatedTouchEffectDisplayers.Count);
+            _rentedArrayForGeneratedTapEffectDisplayers = Pool<TapEffectDisplayer>.Rent(generatedTapEffectDisplayers.Count);
+            _rentedArrayForGeneratedHoldEffectDisplayers = Pool<HoldEffectDisplayer>.Rent(generatedHoldEffectDisplayers.Count);
+            _rentedArrayForGeneratedTouchEffectDisplayers = Pool<TouchEffectDisplayer>.Rent(generatedTouchEffectDisplayers.Count);
             generatedTapEffectDisplayers.CopyTo(_rentedArrayForGeneratedTapEffectDisplayers);
             generatedHoldEffectDisplayers.CopyTo(_rentedArrayForGeneratedHoldEffectDisplayers);
             generatedTouchEffectDisplayers.CopyTo(_rentedArrayForGeneratedTouchEffectDisplayers);

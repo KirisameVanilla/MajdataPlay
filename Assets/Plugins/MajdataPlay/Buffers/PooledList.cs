@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 #nullable enable
 namespace MajdataPlay.Buffers
 {
-    public class RentedList<T> : IList<T>, ICollection<T>, IReadOnlyList<T>, IDisposable
+    public class PooledList<T> : IList<T>, ICollection<T>, IReadOnlyList<T>, IDisposable
     {
         public struct Enumerator : IEnumerator<T>, IDisposable, IEnumerator
         {
@@ -15,7 +15,7 @@ namespace MajdataPlay.Buffers
             uint _version;
             T _current;
 
-            RentedList<T> _list;
+            PooledList<T> _list;
 
             public T Current
             {
@@ -26,7 +26,7 @@ namespace MajdataPlay.Buffers
                 }
             }
 
-            object IEnumerator.Current
+            object? IEnumerator.Current
             {
                 get
                 {
@@ -40,7 +40,7 @@ namespace MajdataPlay.Buffers
                 }
             }
 
-            internal Enumerator(RentedList<T> list)
+            internal Enumerator(PooledList<T> list)
             {
                 this._list = list;
                 _index = 0;
@@ -84,7 +84,7 @@ namespace MajdataPlay.Buffers
             {
                 if (_list._isDisposed)
                 {
-                    throw new ObjectDisposedException(nameof(RentedList<T>), "This rented array has been disposed.");
+                    throw new ObjectDisposedException(nameof(PooledList<T>), "This rented array has been disposed.");
                 }
             }
         }
@@ -102,7 +102,7 @@ namespace MajdataPlay.Buffers
             get
             {
                 ThrowIfDisposed();
-                return _rentedArray.Length;
+                return _array.Length;
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set
@@ -112,18 +112,17 @@ namespace MajdataPlay.Buffers
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), "Capacity cannot be less than the current size.");
                 }
-                if(value == _rentedArray.Length)
+                if(value == _array.Length)
                 {
                     return;
                 }
-                var newRentedArray = new ArrayOwner<T>(_sharedPool.Rent(value), _sharedPool);
+                var newArray = new PooledArray<T>(_pool.Rent(value), _pool, false);
                 if (_size > 0)
                 {
-                    Array.Copy(_rentedArray.Array, newRentedArray.Array, _size);
+                    Array.Copy(_array, newArray, _size);
                 }
-                _rentedArray.Dispose();
-                _rentedArray = newRentedArray;
-                _array = _rentedArray.Array;
+                _array.Dispose();
+                _array = newArray;
             }
         }
         public T this[int index]
@@ -158,37 +157,36 @@ namespace MajdataPlay.Buffers
             }
         }
 
-        int _size = 0;
-        uint _version = 0;
-        T[] _array;
-        bool _isDisposed = false;
-        ArrayOwner<T> _rentedArray;
+        private int _size = 0;
+        private uint _version = 0;
+        private PooledArray<T> _array;
+        private bool _isDisposed = false;
+        private readonly ArrayPool<T> _pool;
 
-        readonly static ArrayPool<T> _sharedPool = Pool<T>.ArrayPool;
-        ~RentedList()
+        ~PooledList()
         {
             Dispose();
         }
-        public RentedList()
+        public PooledList() : this(8, Pool<T>.ArrayPool)
         {
-            //List
-            _rentedArray = ArrayOwner<T>.Empty;
-            _array = _rentedArray.Array;
+
         }
-        public RentedList(IEnumerable<T> items)
+        public PooledList(IEnumerable<T> items) : this(8, Pool<T>.ArrayPool)
         {
             if (items == null)
             {
                 throw new ArgumentNullException(nameof(items), "Items cannot be null.");
             }
-            _rentedArray = ArrayOwner<T>.Empty;
-            _array = _rentedArray.Array;
             AddRange(items);
         }
-        public RentedList(int capacity)
+        public PooledList(int capacity): this(capacity, Pool<T>.ArrayPool)
         {
-            _rentedArray = new ArrayOwner<T>(_sharedPool.Rent(capacity), _sharedPool);
-            _array = _rentedArray.Array;
+            
+        }
+        public PooledList(int capacity, ArrayPool<T> pool)
+        {
+            _pool = pool;
+            _array = new PooledArray<T>(_pool.Rent(capacity), _pool, false);
         }
         public void Add(T item)
         {
@@ -252,15 +250,8 @@ namespace MajdataPlay.Buffers
         public int IndexOf(T item)
         {
             ThrowIfDisposed();
-            for (var i = 0; i < _size; i++)
-            {
-                var current = _array[i];
-                if (EqualityComparer<T>.Default.Equals(current, item))
-                {
-                    return i;
-                }
-            }
-            return -1;
+
+            return Array.IndexOf(_array, item);
         }
         public bool Remove(T item)
         {
@@ -340,7 +331,7 @@ namespace MajdataPlay.Buffers
                 return;
             }
             _isDisposed = true;
-            _rentedArray.Dispose();
+            _array.Dispose();
         }
         public T[] ToArray()
         {
@@ -373,7 +364,7 @@ namespace MajdataPlay.Buffers
         {
             if (_isDisposed)
             {
-                throw new ObjectDisposedException(nameof(RentedList<T>), "This rented array has been disposed.");
+                throw new ObjectDisposedException(nameof(PooledList<T>), "This rented array has been disposed.");
             }
         }
         void EnsureCapacity(int minCapacity)

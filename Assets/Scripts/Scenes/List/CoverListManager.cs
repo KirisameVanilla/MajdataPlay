@@ -85,9 +85,9 @@ namespace MajdataPlay.Scenes.List
 
         MotionHandle _scrollMotion;
 
-        readonly RentedList<ISongDetail> _songDetails = new();
-        readonly RentedList<SongCoverBinding> _songCoverBindings = new();
-        readonly RentedList<SongThumbnailBinding> _songThumbnailBindings = new();
+        readonly PooledList<ISongDetail> _songDetails = new();
+        readonly PooledList<SongCoverBinding> _songCoverBindings = new();
+        readonly PooledList<SongThumbnailBinding> _songThumbnailBindings = new();
 
         readonly Queue<SongCoverDisplayer> _idleSongCoverDisplayer = new();
         readonly Queue<ThumbnailDisplayer> _idleSongThumbnailDisplayer = new();
