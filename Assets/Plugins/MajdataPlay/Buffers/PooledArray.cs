@@ -15,11 +15,26 @@ namespace MajdataPlay.Buffers
             get
             {
                 ThrowIfDisposed();
-                return ref _array[index];
+                return ref CurrentArray[index];
             }
         }
-        public int Length { get; private set; }
+        public int Length { get => CurrentArray.Length; }
         public bool IsEmpty { get => Length == 0; }
+
+        private readonly T[] CurrentArray
+        {
+            get
+            {
+                return _array ?? Array.Empty<T>();
+            }
+        }
+        private readonly ArrayPool<T> CurrentPool
+        {
+            get
+            {
+                return _pool ?? ArrayPool<T>.Shared;
+            }
+        }
 
         private int _isDisposed;
 
@@ -27,14 +42,22 @@ namespace MajdataPlay.Buffers
         private readonly bool _clearArrayWhenReturn;
         private readonly ArrayPool<T> _pool;
 
-        public static readonly PooledArray<T> Empty = new(Array.Empty<T>(), ArrayPool<T>.Shared, false);
 
-        public PooledArray(T[] array, ArrayPool<T> pool, bool clearArrayWhenReturn)
+        public PooledArray(int minimumLength, bool clearArrayWhenReturn) : this(minimumLength, ArrayPool<T>.Shared, clearArrayWhenReturn)
+        {
+
+        }
+        public PooledArray(int minimumLength, ArrayPool<T> pool, bool clearArrayWhenReturn)
+        {
+            _array = pool.Rent(minimumLength);
+            _pool = pool;
+            _clearArrayWhenReturn = clearArrayWhenReturn;
+        }
+        internal PooledArray(T[] array, ArrayPool<T> pool, bool clearArrayWhenReturn)
         {
             _array = array;
             _pool = pool;
             _clearArrayWhenReturn = clearArrayWhenReturn;
-            Length = array.Length;
         }
 
         
@@ -47,20 +70,17 @@ namespace MajdataPlay.Buffers
             }
             else if(newSize == 0)
             {
-                Length = 0;
-                _pool.Return(_array);
+                CurrentPool.Return(CurrentArray);
                 _array = Array.Empty<T>();
                 return;
             }
             newSize = RoundUpToPowerOf2(newSize);
-            var newArray = _pool.Rent(newSize);
+            var newArray = CurrentPool.Rent(newSize);
             var copyLength = Math.Min(Length, newArray.Length);
 
-            _array.AsSpan(0, copyLength).CopyTo(newArray);
+            CurrentArray.AsSpan(0, copyLength).CopyTo(newArray);
 
-            Length = newArray.Length;
-
-            _pool.Return(_array);
+            CurrentPool.Return(CurrentArray);
             _array = newArray;
         }
         public void EnsureLength(int length)
@@ -74,47 +94,47 @@ namespace MajdataPlay.Buffers
         public readonly T[] AsArray()
         {
             ThrowIfDisposed();
-            return _array;
+            return CurrentArray;
         }
         public readonly Memory<T> AsMemory()
         {
             ThrowIfDisposed();
-            return _array;
+            return CurrentArray;
         }
         public readonly Memory<T> AsMemory(Range range)
         {
             ThrowIfDisposed();
-            return _array.AsMemory(range);
+            return CurrentArray.AsMemory(range);
         }
         public readonly Memory<T> AsMemory(int start)
         {
             ThrowIfDisposed();
-            return _array.AsMemory(start);
+            return CurrentArray.AsMemory(start);
         }
         public readonly Memory<T> AsMemory(int start, int length)
         {
             ThrowIfDisposed();
-            return _array.AsMemory(start, length);
+            return CurrentArray.AsMemory(start, length);
         }
         public readonly Span<T> AsSpan()
         {
             ThrowIfDisposed();
-            return _array;
+            return CurrentArray;
         }
         public readonly Span<T> AsSpan(Range range)
         {
             ThrowIfDisposed();
-            return _array.AsSpan(range);
+            return CurrentArray.AsSpan(range);
         }
         public readonly Span<T> AsSpan(int start)
         {
             ThrowIfDisposed();
-            return _array.AsSpan(start);
+            return CurrentArray.AsSpan(start);
         }
         public readonly Span<T> AsSpan(int start, int length)
         {
             ThrowIfDisposed();
-            return _array.AsSpan(start, length);
+            return CurrentArray.AsSpan(start, length);
         }
         public void Dispose()
         {
@@ -122,11 +142,11 @@ namespace MajdataPlay.Buffers
             {
                 return;
             }
-            if (_array.Length != 0)
+
+            if (CurrentArray.Length != 0)
             {
-                _pool.Return(_array, _clearArrayWhenReturn);
+                CurrentPool.Return(_array, _clearArrayWhenReturn);
                 _array = Array.Empty<T>();
-                Length = 0;
             }
         }
         public Enumerator GetEnumerator()
@@ -165,17 +185,17 @@ namespace MajdataPlay.Buffers
         public static implicit operator Span<T>(PooledArray<T> lease)
         {
             lease.ThrowIfDisposed();
-            return lease._array;
+            return lease.CurrentArray;
         }
         public static implicit operator Memory<T>(PooledArray<T> lease)
         {
             lease.ThrowIfDisposed();
-            return lease._array;
+            return lease.CurrentArray;
         }
         public static implicit operator T[](PooledArray<T> lease)
         {
             lease.ThrowIfDisposed();
-            return lease._array;
+            return lease.CurrentArray;
         }
 
         public struct Enumerator : IEnumerator<T>, IDisposable, IEnumerator
