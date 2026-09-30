@@ -21,6 +21,7 @@ namespace MajdataPlay.Net.Curl.Core
         internal CurlRequest Request { get; }
 
         int _disposeFlag = 0;
+        int _isCleanedUp;
         long _currentHeadersLength = 0;
 
         readonly Action _onResume;
@@ -337,6 +338,10 @@ namespace MajdataPlay.Net.Curl.Core
         }
         internal void CleanUp()
         {
+            if (Interlocked.Exchange(ref _isCleanedUp, 1) != 0)
+            {
+                return;
+            }
             _handle.Dispose();
             _responseStream.CleanUp();
         }

@@ -39,6 +39,15 @@ namespace MajdataPlay.Net.Curl
             _curlMulti = new();
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _curlMulti.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -48,13 +57,13 @@ namespace MajdataPlay.Net.Curl
             var contentStream = default(Stream?);
             if(content is not null)
             {
-                contentStream = await content.ReadAsStreamAsync();
+                contentStream = await content.ReadAsStreamAsync().ConfigureAwait(false);
             }
             var curlTask = _curlMulti.AddToQueue(request, contentStream, config, cancellationToken);
 
             try
             {
-                var rsp = await curlTask;
+                var rsp = await curlTask.ConfigureAwait(false);
 
                 return rsp;
             }

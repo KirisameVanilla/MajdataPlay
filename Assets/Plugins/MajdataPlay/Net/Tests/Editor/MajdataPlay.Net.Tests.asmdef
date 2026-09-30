@@ -1,0 +1,7 @@
+{
+    "name": "MajdataPlay.Net.Tests",
+    "references": ["MajdataPlay.Net"],
+    "includePlatforms": ["Editor"],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "autoReferenced": false
+}
