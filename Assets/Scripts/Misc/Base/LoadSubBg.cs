@@ -14,6 +14,9 @@ namespace MajdataPlay
         {
             base.Awake();
             _img = GetComponent<Image>();
+            _img.sprite = null;
+            _img.color = Color.black;
+            _img.useSpriteMesh = true;
             WaitSkinLoadedAsync().Forget();
         }
         void OnDestroy()

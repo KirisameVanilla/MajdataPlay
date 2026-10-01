@@ -1,8 +1,8 @@
-Shader "Common/Opaque"
+Shader "Common/OpaqueMask"
 {
     Properties
     {
-        [MainTexture] _MainTex ("Texture", 2D) = "white" {}
+        [MainTexture] _MainTex ("Mask Texture", 2D) = "white" {}
         [MainColor] _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0, 1)) = 0.5
     }
@@ -11,7 +11,7 @@ Shader "Common/Opaque"
     {
         Tags
         {
-            "Queue" = "AlphaTest"
+            "Queue" = "Overlay"
             "RenderType" = "TransparentCutout"
             "RenderPipeline" = "UniversalPipeline"
             "IgnoreProjector" = "True"
@@ -21,7 +21,7 @@ Shader "Common/Opaque"
 
         Cull Off
         ZWrite On
-        ZTest LEqual
+        ZTest Always
         Blend Off
 
         Pass
