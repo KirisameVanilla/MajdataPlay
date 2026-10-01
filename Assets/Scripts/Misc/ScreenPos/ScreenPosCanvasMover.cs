@@ -121,6 +121,8 @@ namespace MajdataPlay
 
         DisplayOptions? _displayOptions;
 
+        private bool _isSubCoverPendingRefresh = false;
+
 
         void Awake()
         {
@@ -226,6 +228,7 @@ namespace MajdataPlay
                 _subCoverBottomRectTransform.anchoredPosition = new Vector2(0, SUB_COVER_BOTTOM_POS_Y);
                 _subCoverBottomRectTransform.sizeDelta = new Vector2(SUB_COVER_BOTTOM_WIDTH, SUB_COVER_BOTTOM_HEIGHT);
             }
+            _isSubCoverPendingRefresh = false;
         }
 
         void ApplyPosition(float offset, float scale, bool updateCache = false)
@@ -285,29 +288,56 @@ namespace MajdataPlay
             _subDisplay.localScale = new Vector3(scale, scale, 1f);
         }
 
+        // 遮罩与主副屏均为同一父节点下的无旋转 UI，所有边界使用父节点局部坐标。
+        static void SetCoverRect(RectTransform cover, float left, float right, float bottom, float top)
+        {
+            var scale = cover.localScale;
+            if (Mathf.Approximately(scale.x, 0f) || Mathf.Approximately(scale.y, 0f))
+            {
+                return;
+            }
+
+            var width = Mathf.Max(0f, right - left);
+            var height = Mathf.Max(0f, top - bottom);
+            // sizeDelta 在拉伸锚点下不等于实际尺寸，同时需要抵消遮罩自身的缩放。
+            cover.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width / Mathf.Abs(scale.x));
+            cover.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height / Mathf.Abs(scale.y));
+
+            var position = cover.localPosition;
+            position.x = left + width * (scale.x > 0f ? cover.pivot.x : 1f - cover.pivot.x);
+            position.y = bottom + height * (scale.y > 0f ? cover.pivot.y : 1f - cover.pivot.y);
+            cover.localPosition = position;
+        }
+
         void UpdateSubCover()
         {
+            if (_parentRt == null)
+            {
+                return;
+            }
+
+            // RectTransform.rect 已经是 Canvas 单位，不应再除以 Canvas 的缩放系数。
+            var parentRect = _parentRt.rect;
+            // 横向边界对齐主屏幕（原始宽度 1080），并跟随 localScale 缩放。
+            var mainX1 = _rt.localPosition.x + _rt.rect.xMin * _rt.localScale.x;
+            var mainX2 = _rt.localPosition.x + _rt.rect.xMax * _rt.localScale.x;
+            var mainDisplayLeft = Mathf.Min(mainX1, mainX2);
+            var mainDisplayRight = Mathf.Max(mainX1, mainX2);
+            var mainY1 = _rt.localPosition.y + _rt.rect.yMin * _rt.localScale.y;
+            var mainY2 = _rt.localPosition.y + _rt.rect.yMax * _rt.localScale.y;
+            var mainDisplayBottom = Mathf.Min(mainY1, mainY2);
+            var mainDisplayTop = Mathf.Max(mainY1, mainY2);
+
             if (_subCoverRectTransform != null && _subDisplay != null)
             {
-                // 主副屏锚点不同，统一使用父容器坐标，并计入各自的实际尺寸和缩放。
-                var mainDisplayTop = _rt.localPosition.y + _rt.rect.yMax * _rt.localScale.y;
-                var subDisplayBottom = _subDisplay.localPosition.y + _subDisplay.rect.yMin * _subDisplay.localScale.y;
-
-                var coverHeight = Mathf.Max(0f, subDisplayBottom - mainDisplayTop);
-                _subCoverRectTransform.sizeDelta = new Vector2(SUB_COVER_WIDTH, coverHeight);
-
-                var coverPosition = _subCoverRectTransform.localPosition;
-                coverPosition.y = mainDisplayTop + coverHeight * _subCoverRectTransform.pivot.y;
-                _subCoverRectTransform.localPosition = coverPosition;
+                var subDisplayBottom = _subDisplay.localPosition.y + Mathf.Min(
+                    _subDisplay.rect.yMin * _subDisplay.localScale.y,
+                    _subDisplay.rect.yMax * _subDisplay.localScale.y);
+                SetCoverRect(_subCoverRectTransform, mainDisplayLeft, mainDisplayRight, mainDisplayTop, subDisplayBottom);
             }
             if (_subCoverBottomRectTransform != null)
             {
-                var mainDisplayBottom = _rt.anchoredPosition.y - (MAIN_DISPLAY_HEIGHT / 2f);
-                var coverHeight = Mathf.Max(0f, mainDisplayBottom);
-                var coverCenterY = coverHeight / 2;
-
-                _subCoverBottomRectTransform.anchoredPosition = new Vector2(0, coverCenterY);
-                _subCoverBottomRectTransform.sizeDelta = new(SUB_COVER_BOTTOM_WIDTH, coverHeight);
+                SetCoverRect(_subCoverBottomRectTransform, mainDisplayLeft, mainDisplayRight, parentRect.yMin, mainDisplayBottom);
             }
         }
 
@@ -321,11 +351,12 @@ namespace MajdataPlay
                 var scale = _displayOptions!.MainScreenScale;
                 _lastMainDisplayOffset = offset;
                 _lastMainDisplayScale = scale;
-                ApplyPosition(offset, scale);
+                ApplyPosition(offset, scale, true);
 
                 var subOffset = _displayOptions.SubDisplayOffset;
                 var subScale = _displayOptions.SubDisplayScale;
                 _lastSubDisplayOffset = subOffset;
+                _lastSubDisplayScale = subScale;
                 ApplySubDisplayTransform(subOffset * 100f, subScale);
 
                 UpdateSubCover();
@@ -335,8 +366,16 @@ namespace MajdataPlay
                 RestoreOriginal();
             }
         }
+        private void Update()
+        {
+            if (_isSubCoverPendingRefresh)
+            {
+                UpdateSubCover();
+                _isSubCoverPendingRefresh = false;
+            }
+        }
 
-        void Update()
+        private void LateUpdate()
         {
             switch (_flag)
             {
@@ -348,9 +387,10 @@ namespace MajdataPlay
                             return;
                         }
                         ApplyTransform();
+                        _isSubCoverPendingRefresh = true;
                         _flag = FLAG_INITED;
                     }
-                    goto case FLAG_INITED;
+                    return;
                 case FLAG_INITED:
                     {
                         var transformDisplay = _displayOptions!.MainScreenTransform;
@@ -382,7 +422,7 @@ namespace MajdataPlay
                         {
                             return;
                         }
-
+                        // 仅主副屏变换依赖脏检测，遮罩需要每帧跟随实际布局刷新。
                         if (subChanged)
                         {
                             _lastSubDisplayOffset = subDisplayOffset;
@@ -396,7 +436,7 @@ namespace MajdataPlay
                             _lastMainDisplayScale = screenScale;
                             ApplyPosition(screenOffset, screenScale, updateCache: true);
                         }
-                        UpdateSubCover();
+                        _isSubCoverPendingRefresh = true;
                     }
                     return;
             }

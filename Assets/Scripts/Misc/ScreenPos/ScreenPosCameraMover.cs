@@ -91,7 +91,7 @@ namespace MajdataPlay
             }
         }
 
-        void Update()
+        void LateUpdate()
         {
             switch (_flag)
             {
