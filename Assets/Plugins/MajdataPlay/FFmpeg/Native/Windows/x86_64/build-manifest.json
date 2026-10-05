@@ -1,0 +1,168 @@
+{
+  "target": "win-x64",
+  "source": {
+    "repository": "https://github.com/FFmpeg/FFmpeg.git",
+    "tag": "n9.0.1",
+    "commit": "bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa",
+    "abi": {
+      "avcodec": 63,
+      "avdevice": 63,
+      "avfilter": 12,
+      "avformat": 63,
+      "avutil": 61,
+      "swresample": 7,
+      "swscale": 10
+    },
+    "bindingHeaders": "ThirdParty/FFmpeg.AutoGen/FFmpeg/include",
+    "note": "All upstream public headers present in the binding header snapshot are compared after CRLF normalization before building. Generated avconfig.h and ffversion.h are excluded."
+  },
+  "host": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "builtUtc": "2026-10-04T16:59:39.253827+00:00",
+  "configure": [
+    "--prefix=/tmp/majdata-av1/install/win-x64",
+    "--disable-doc",
+    "--disable-programs",
+    "--disable-debug",
+    "--disable-autodetect",
+    "--disable-encoders",
+    "--disable-muxers",
+    "--disable-filters",
+    "--disable-devices",
+    "--enable-pic",
+    "--disable-gpl",
+    "--disable-nonfree",
+    "--enable-shared",
+    "--disable-static",
+    "--cross-prefix=x86_64-w64-mingw32-",
+    "--extra-ldflags=-static-libgcc",
+    "--target-os=mingw32",
+    "--arch=x86_64",
+    "--enable-cross-compile",
+    "--enable-w32threads",
+    "--enable-d3d11va",
+    "--enable-d3d12va",
+    "--enable-dxva2",
+    "--enable-schannel",
+    "--extra-cflags=-I/mnt/c/Users/LeZi/source/repos/LingFeng-bbben/MajdataPlay/Tools/FFmpeg/.build/toolchains/d3d12-header-overlay",
+    "--enable-vulkan",
+    "--disable-vulkan-static",
+    "--extra-cflags=-I/mnt/c/Users/LeZi/source/repos/LingFeng-bbben/MajdataPlay/Tools/FFmpeg/.build/toolchains/Vulkan-Headers-vulkan-sdk-1.4.328.1/include",
+    "--disable-hwaccel=apv_vulkan,dpx_vulkan,ffv1_vulkan,prores_raw_vulkan,prores_vulkan",
+    "--enable-libdav1d",
+    "--pkg-config=sh /tmp/majdata-av1/dav1d-win-x64-733a5bb63ec7/pkg-config.sh"
+  ],
+  "files": [
+    {
+      "file": "avcodec-63.dll",
+      "bytes": 18259968,
+      "sha256": "a352ab150df09971835e10192aae80959d994a61ded9610dd9c12818fd1f7c2d"
+    },
+    {
+      "file": "avdevice-63.dll",
+      "bytes": 17920,
+      "sha256": "ae4f4b066fa67f0d2ea3295afc0b177174c55783ed6af3b68ba531eb213faac2"
+    },
+    {
+      "file": "avfilter-12.dll",
+      "bytes": 157696,
+      "sha256": "c5985b4690568790d92086f107550f55699645b513aa217ff4801b9b2ab13960"
+    },
+    {
+      "file": "avformat-63.dll",
+      "bytes": 1896960,
+      "sha256": "9691c0ed3126028dbc43282989e23668846e208b318a9851ee8388384f74cda3"
+    },
+    {
+      "file": "avutil-61.dll",
+      "bytes": 1156096,
+      "sha256": "763f325d7439101377ba8934842892cb3b10fe08a82eb814cbd7027a755a1cd1"
+    },
+    {
+      "file": "swresample-7.dll",
+      "bytes": 139776,
+      "sha256": "4e0cd73bb5eb371f1a0698e995a2b0f5fe0e8ff19e33b5e0ee49fcda2ec005a3"
+    },
+    {
+      "file": "swscale-10.dll",
+      "bytes": 2211328,
+      "sha256": "acf638c90cbddc1e48860583668ae85dc3b2f287e1620ef0dcbc2d4268b70b7b"
+    }
+  ],
+  "softwareDecoders": [
+    "libdav1d"
+  ],
+  "buildDependencies": {
+    "dav1d": {
+      "version": "1.5.3",
+      "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.3/dav1d-1.5.3.tar.xz",
+      "sha256": "732010aa5ef461fa93355ed2c6c5fedb48ddc4b74e697eaabe8907eaeb943011"
+    },
+    "meson": {
+      "version": "1.9.1",
+      "url": "https://files.pythonhosted.org/packages/9c/07/b48592d325cb86682829f05216e4efb2dc881762b8f1bafb48b57442307a/meson-1.9.1-py3-none-any.whl",
+      "sha256": "f824ab770c041a202f532f69e114c971918ed2daff7ea56583d80642564598d0"
+    },
+    "vulkanHeaders": {
+      "repository": "https://github.com/KhronosGroup/Vulkan-Headers.git",
+      "tag": "vulkan-sdk-1.4.328.1",
+      "commit": "19725e4d48082fe78e26622b15d3080ccd54112b",
+      "minimumHeaderVersion": 317
+    },
+    "d3d12HeaderOverlay": {
+      "source": "llvm-mingw-20260922-ucrt-x86_64.zip",
+      "files": {
+        "d3d12.h": "23935395fe8939ac0ca71c5b34cd7b21a689ff5e9641846563613f24bc0dd85e",
+        "d3d12video.h": "23216f1bcb62c8c0c9e09d66cf12d639eb1abcad9a1ba31e0d517a428cd56aee"
+      }
+    },
+    "llvmMingw": {
+      "version": "20260922",
+      "repository": "https://github.com/mstorsjo/llvm-mingw",
+      "archives": {
+        "Linux-x86_64": {
+          "file": "llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz",
+          "sha256": "bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21"
+        },
+        "Darwin-universal": {
+          "file": "llvm-mingw-20260922-ucrt-macos-universal.tar.xz",
+          "sha256": "52e5f5a7b131021d0c39a37a38fa380a1da7885cd04bd61afd0cd4ecfb8bc1f3"
+        },
+        "Windows-x86_64": {
+          "file": "llvm-mingw-20260922-ucrt-x86_64.zip",
+          "sha256": "e3ad77d117a4bea19a7a3b333341824d79a5a371004a10e25b8504e7b3047666"
+        }
+      }
+    }
+  },
+  "buildDependencyLicenses": [
+    {
+      "file": "dav1d.LICENSE.txt",
+      "sha256": "b7fc54472d14c149d9a7dff4b2696243c018a4a1127e31f0f3cdf7c60c10ccc1",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "file": "Vulkan-Headers.LICENSE.txt",
+      "sha256": "8bfec46a1b5d1b95e730ea0bb60d76838c7cf443a36b0ed21b8c9f6da6c9a8d5",
+      "license": "Apache-2.0"
+    }
+  ],
+  "verifiedHardwareBackends": [
+    "VULKAN",
+    "H264_VULKAN_HWACCEL",
+    "HEVC_VULKAN_HWACCEL",
+    "AV1_VULKAN_HWACCEL",
+    "VP9_VULKAN_HWACCEL",
+    "D3D12VA",
+    "H264_D3D12VA_HWACCEL",
+    "HEVC_D3D12VA_HWACCEL",
+    "AV1_D3D12VA_HWACCEL",
+    "VP9_D3D12VA_HWACCEL"
+  ],
+  "d3d12HeaderOverlay": {
+    "directory": "/mnt/c/Users/LeZi/source/repos/LingFeng-bbben/MajdataPlay/Tools/FFmpeg/.build/toolchains/d3d12-header-overlay",
+    "files": {
+      "d3d12.h": "23935395fe8939ac0ca71c5b34cd7b21a689ff5e9641846563613f24bc0dd85e",
+      "d3d12video.h": "23216f1bcb62c8c0c9e09d66cf12d639eb1abcad9a1ba31e0d517a428cd56aee"
+    }
+  }
+}
