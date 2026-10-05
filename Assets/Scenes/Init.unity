@@ -598,10 +598,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 067a7c58d784bcd4dac4bc1227584d30, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  player: {fileID: 0}
   _ffmpegPlayer: {fileID: 130509347}
-  videopath: /MovieBG/title
-  LoadOnly: 0
+  _videoPath: /MovieBG/title
+  _loadOnly: 0
 --- !u!212 &130509345
 SpriteRenderer:
   serializedVersion: 2
@@ -691,11 +690,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: MajdataPlay.FFmpeg::MajdataPlay.FFmpeg.FFmpegVideoPlayer
   _source: 
-  _playOnAwake: 1
-  _loop: 1
+  <PlayOnAwake>k__BackingField: 0
+  <Loop>k__BackingField: 1
   _playbackRate: 1
-  _bufferedFrameLimit: 3
-  _ioTimeoutSeconds: 15
+  <BufferedFrameLimit>k__BackingField: 3
+  <IOTimeoutSeconds>k__BackingField: 15
   _preferHardwareDecoding: 1
   _preferNativeTextures: 1
   _requireHardwareDecoding: 0

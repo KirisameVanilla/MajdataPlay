@@ -47,7 +47,7 @@ namespace MajdataPlay.FFmpeg.Internal
     /// <summary>One owner thread per demuxer. Cancellation never joins the Unity thread.</summary>
     internal sealed class VideoDecodeSession : IDisposable
     {
-        /// <summary>Protects queued frames, control revisions, and worker status across threads.</summary>
+        /// <summary>Protects the playback timeline, queued frames, control revisions, and worker status across threads.</summary>
         private readonly object _gate = new object();
         /// <summary>Queues owned frames awaiting main-thread presentation.</summary>
         private readonly Queue<DecodedVideoFrame> _frames;
@@ -61,6 +61,8 @@ namespace MajdataPlay.FFmpeg.Internal
         private readonly DecoderOptions _options;
         /// <summary>Limits the number of queued presentation frames.</summary>
         private readonly int _capacity;
+        /// <summary>Owns the shared presentation and frame-expiration timeline, accessed under the session lock.</summary>
+        private readonly PlaybackClock _playbackClock = new PlaybackClock();
         /// <summary>Track requested closure, worker completion, and fully drained input, respectively.</summary>
         private bool _disposed, _finished, _eof;
         /// <summary>Identifies the latest seek request so stale decoded frames can be discarded.</summary>
@@ -75,8 +77,11 @@ namespace MajdataPlay.FFmpeg.Internal
         /// <param name="path">The media input path or FFmpeg-supported URL.</param>
         /// <param name="options">The resource limits and hardware configuration to use.</param>
         /// <param name="capacity">The number of frame containers or queued frames to retain.</param>
-        public VideoDecodeSession(string path, DecoderOptions options, int capacity)
+        /// <param name="playbackRate">The initial playback multiplier, applied before the decoding worker starts.</param>
+        /// <exception cref="ArgumentOutOfRangeException">The playback rate is not finite or outside the supported range.</exception>
+        public VideoDecodeSession(string path, DecoderOptions options, int capacity, double playbackRate = 1)
         {
+            _playbackClock.Rate = playbackRate;
             _path = path;
             _options = options;
             _capacity = Math.Max(1, Math.Min(8, capacity));
@@ -150,6 +155,56 @@ namespace MajdataPlay.FFmpeg.Internal
             }
         }
 
+        /// <summary>Gets the shared playback position in seconds under the session lock.</summary>
+        public double PlaybackPosition
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _playbackClock.Position;
+                }
+            }
+        }
+
+        /// <summary>Updates the shared playback timeline atomically and wakes the decoding worker.</summary>
+        /// <param name="position">An optional new media position in seconds; null preserves the current position.</param>
+        /// <param name="rate">An optional playback multiplier from 0.0625 through 16; null preserves the current rate.</param>
+        /// <param name="playing">True starts the clock, false freezes it, and null preserves its running state.</param>
+        /// <exception cref="ArgumentOutOfRangeException">The supplied rate is not finite or outside the supported range.</exception>
+        public void SetPlayback(double? position = null, double? rate = null, bool? playing = null)
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (rate.HasValue)
+                {
+                    _playbackClock.Rate = rate.Value;
+                }
+
+                if (playing == false)
+                {
+                    _playbackClock.Pause();
+                }
+
+                if (position.HasValue)
+                {
+                    _playbackClock.Set(position.Value);
+                }
+
+                if (playing == true)
+                {
+                    _playbackClock.Start();
+                }
+
+                Monitor.PulseAll(_gate);
+            }
+        }
+
         /// <summary>Transfers ownership of the next queued frame to the caller and wakes the worker.</summary>
         /// <returns>The next owned frame, or null if the queue is empty; the caller must dispose the frame.</returns>
         public DecodedVideoFrame? TakeFrame()
@@ -167,6 +222,26 @@ namespace MajdataPlay.FFmpeg.Internal
             }
         }
 
+        /// <summary>Transfers the newest due frame and releases older due frames atomically.</summary>
+        /// <param name="maximumPresentationTime">The latest eligible timestamp in seconds.</param>
+        /// <returns>The newest eligible owned frame, or null; the caller must dispose the returned frame.</returns>
+        /// <remarks>The bounded queue cannot refill during selection, and only one frame leaves its ownership.</remarks>
+        public DecodedVideoFrame? TakeLatestFrame(double maximumPresentationTime)
+        {
+            lock (_gate)
+            {
+                DecodedVideoFrame? newest = null;
+                while (_frames.Count != 0 && _frames.Peek().PresentationTime <= maximumPresentationTime)
+                {
+                    newest?.Dispose();
+                    newest = _frames.Dequeue();
+                }
+
+                Monitor.PulseAll(_gate);
+                return newest;
+            }
+        }
+
         /// <summary>Replaces pending seeks, discards buffered frames, and wakes the decoder worker.</summary>
         /// <param name="seconds">The media timeline position in seconds.</param>
         /// <exception cref="ObjectDisposedException">The session has already been closed.</exception>
@@ -180,6 +255,9 @@ namespace MajdataPlay.FFmpeg.Internal
                     throw new ObjectDisposedException(nameof(VideoDecodeSession));
                 }
 
+                // Preparation of the seek frame must not use the previous playback cutoff.
+                _playbackClock.Pause();
+                _playbackClock.Set(seconds);
                 _seek = seconds;
                 _revision++;
                 _eof = false;
@@ -214,7 +292,14 @@ namespace MajdataPlay.FFmpeg.Internal
                         {
                             while (!_disposed && decodedRevision == _revision && (_eof || _frames.Count >= _capacity))
                             {
-                                Monitor.Wait(_gate);
+                                if (!_eof && _playbackClock.Running && _frames.Peek().PresentationTime <= _playbackClock.Position)
+                                {
+                                    // Keep the queued frame available until a newer due candidate
+                                    // replaces it, including when the queue has only one slot.
+                                    break;
+                                }
+
+                                Monitor.Wait(_gate, _eof ? Timeout.Infinite : FrameWaitMilliseconds(_frames.Peek().PresentationTime));
                             }
 
                             if (_disposed)
@@ -232,31 +317,54 @@ namespace MajdataPlay.FFmpeg.Internal
                             decodedRevision = revision;
                         }
 
-                        using var profile = UnityProfiler.Create("FFmpeg.Session.DecodeAndQueue");
-                        var frame = decoder.ReadFrame();
-                        lock (_gate)
+                        DecodedVideoFrame? frame;
+                        using (var profile = UnityProfiler.Create("FFmpeg.Session.DecodeAndQueue"))
                         {
-                            if (_info.Width != decoder.Width || _info.Height != decoder.Height
-                                || _info.HardwareFallbackReason != decoder.HardwareFallbackReason || _info.HardwareDecoding != decoder.HardwareDecoding
-                                || _info.DecoderName != decoder.DecoderName || _info.DecoderDevice != decoder.DecoderDevice
-                                || _info.TransferMode != decoder.TransferMode)
+                            frame = decoder.ReadFrame();
+                        }
+                        try
+                        {
+                            lock (_gate)
                             {
-                                _info = new VideoInfo(decoder);
-                            }
+                                if (_info.Width != decoder.Width || _info.Height != decoder.Height
+                                    || _info.HardwareFallbackReason != decoder.HardwareFallbackReason || _info.HardwareDecoding != decoder.HardwareDecoding
+                                    || _info.DecoderName != decoder.DecoderName || _info.DecoderDevice != decoder.DecoderDevice
+                                    || _info.TransferMode != decoder.TransferMode)
+                                {
+                                    _info = new VideoInfo(decoder);
+                                }
 
-                            if (_disposed || revision != _revision)
-                            {
-                                frame?.Dispose();
+                                if (!_disposed && revision == _revision)
+                                {
+                                    if (frame == null)
+                                    {
+                                        _eof = true;
+                                        MajDebug.LogDebug("FFmpeg", "[Session] Decoder drained at end of input.");
+                                    }
+                                    else
+                                    {
+                                        while (!_disposed && revision == _revision)
+                                        {
+                                            DiscardSupersededFrames(frame);
+                                            if (_frames.Count < _capacity)
+                                            {
+                                                _frames.Enqueue(frame);
+                                                frame = null;
+                                                break;
+                                            }
+
+                                            // One decoded candidate may wait outside the queue.
+                                            // A future candidate must not displace the last due frame.
+                                            Monitor.Wait(_gate, FrameWaitMilliseconds(frame.PresentationTime));
+                                        }
+                                    }
+                                }
                             }
-                            else if (frame == null)
-                            {
-                                _eof = true;
-                                MajDebug.LogDebug("FFmpeg", "[Session] Decoder drained at end of input.");
-                            }
-                            else
-                            {
-                                _frames.Enqueue(frame);
-                            }
+                        }
+                        finally
+                        {
+                            // Seek, close, and failures retain ownership of an unqueued candidate here.
+                            frame?.Dispose();
                         }
                     }
                 }
@@ -300,6 +408,37 @@ namespace MajdataPlay.FFmpeg.Internal
             }
         }
 
+        /// <summary>Releases older due frames only when a newer due candidate can replace them.</summary>
+        /// <param name="candidate">The worker-owned decoded frame that will replace obsolete queued frames.</param>
+        /// <remarks>The caller holds the session lock; future frames and paused timelines are preserved.</remarks>
+        private void DiscardSupersededFrames(DecodedVideoFrame candidate)
+        {
+            if (!_playbackClock.Running || candidate.PresentationTime > _playbackClock.Position)
+            {
+                return;
+            }
+
+            while (_frames.Count != 0 && _frames.Peek().PresentationTime <= candidate.PresentationTime)
+            {
+                _frames.Dequeue().Dispose();
+            }
+        }
+
+        /// <summary>Calculates a worker wait until a frame becomes due on the shared playback timeline.</summary>
+        /// <param name="presentationTime">The queued or pending frame timestamp in seconds.</param>
+        /// <returns>A positive wait in milliseconds, or an infinite wait while playback is frozen.</returns>
+        /// <remarks>The caller holds the session lock; control changes and dequeues interrupt this wait.</remarks>
+        private int FrameWaitMilliseconds(double presentationTime)
+        {
+            if (!_playbackClock.Running)
+            {
+                return Timeout.Infinite;
+            }
+
+            var milliseconds = Math.Ceiling((presentationTime - _playbackClock.Position) / _playbackClock.Rate * 1000);
+            return (int)Math.Max(1, Math.Min(int.MaxValue, milliseconds));
+        }
+
         /// <summary>Releases all queued frames while the caller holds the session lock.</summary>
         private void ClearFrames()
         {
@@ -319,6 +458,7 @@ namespace MajdataPlay.FFmpeg.Internal
                     return;
                 }
 
+                _playbackClock.Pause();
                 _disposed = true;
                 if (!_finished)
                 {

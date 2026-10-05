@@ -32,13 +32,20 @@ namespace MajdataPlay.FFmpeg.Internal
             get => _rate;
             set
             {
-                if (double.IsNaN(value) || double.IsInfinity(value) || value < 0.0625 || value > 16)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value), "Playback rate must be in [0.0625, 16].");
-                }
-
+                ValidateRate(value);
                 Set(Position);
                 _rate = value;
+            }
+        }
+
+        /// <summary>Validates a playback multiplier without requiring a clock instance.</summary>
+        /// <param name="value">The requested finite multiplier in the inclusive range 0.0625 to 16.</param>
+        /// <exception cref="ArgumentOutOfRangeException">The value is not finite or outside the supported range.</exception>
+        public static void ValidateRate(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0.0625 || value > 16)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "Playback rate must be in [0.0625, 16].");
             }
         }
 

@@ -60,6 +60,8 @@ public sealed class VideoExample : MonoBehaviour
 
 所有组件 API 在 Unity 主线程调用。控制时间使用单调时钟，不受 `Time.timeScale` 影响。连续 seek 只保留最后一次请求，旧 `SeekAsync` 被取消。更换 Url / Close / 销毁对象会取消尚未完成的任务；后台线程退出后关闭 FFmpeg。音轨数据包被跳过。预载不是将整个文件读入内存，帧队列默认仅 3 帧，Inspector 可调整到 1–8 帧。
 
+Player 和解码线程共用解码会话持有的唯一单调播放时钟，时间读取、倍速和播放状态修改都在会话锁内完成，无需每帧同步两套时钟。播放期间，解码线程在新帧已经到期时淘汰它替代的旧帧，保留最新到期帧和未来帧。满队列时最多额外持有一张待入队候选帧，并按候选帧到期时间等待；不需要增大缓存才能跳过已过期画面。暂停、缓冲和 seek 时停止淘汰，准备首帧与逐帧播放仍按顺序取帧。主线程在同一队列锁内选择最新到期帧，避免与后台替换竞态。此策略不跳过视频参考帧解码或 RGBA 转换，解码吞吐不足时仍可能落后于时钟。
+
 公开 API 遵循 [Microsoft .NET 命名约定](https://learn.microsoft.com/en-us/dotnet/standard/design-guidelines/capitalization-conventions)：类型和成员使用 PascalCase，参数使用 camelCase。播放器、解码器、选项、帧对象及硬件会话接口均提供英文 XML 文档。旧的小驼峰成员已移除：`time` 改为 `TimeSeconds`，`texture`、`isPrepared`、`isPlaying`、`playbackSpeed` 分别使用 `Texture`、`IsPrepared`、`IsPlaying`、`Rate`。此调整需要更新调用代码，不影响已有场景的序列化字段。
 
 解码与纹理偏好在下一次打开媒体时应用，修改设置不会重标记或中断当前会话。Inspector 的 Preferred Decoder Type 提供 Software/Hardware 选择，旧场景序列化的硬件偏好保持兼容。

@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections;
 using System.IO;
@@ -92,10 +93,11 @@ public sealed class FFmpegPlayerSmoke : MonoBehaviour
         Check(_player.SetRate(2), "rate accepted");
         Check(_player.CurrentBitRate == firstBitRate, "playback rate does not scale the media bitrate");
         Check(!_player.SetRate(-1), "reverse rate rejected");
-        _player.Play();
-        yield return new WaitForSecondsRealtime(0.35f);
-        Check(_player.Time > first + 150 && _frames > 1, "play advances time and frames");
-        _player.Pause();
+        var doubleRatePlayback = TestDoubleRatePlayback();
+        while (doubleRatePlayback.MoveNext())
+        {
+            yield return doubleRatePlayback.Current;
+        }
         var paused = _player.Time;
         long pausedBitRate = _player.CurrentBitRate;
         yield return new WaitForSecondsRealtime(0.12f);
@@ -179,10 +181,57 @@ public sealed class FFmpegPlayerSmoke : MonoBehaviour
             Check(diagnostics.Contains("transport="), "real MajDebug log records frame transport selection");
         }
     }
+    /// <summary>
+    /// Verifies that double-speed playback presents current frames while Unity updates at 60 FPS.
+    /// </summary>
+    /// <returns>The coroutine that measures playback rate and presentation lag.</returns>
+    /// <exception cref="Exception">Thrown when playback or presentation fails a validation assertion.</exception>
+    /// <exception cref="MissingFieldException">Thrown when the displayed frame timestamp is unavailable.</exception>
+    IEnumerator TestDoubleRatePlayback()
+    {
+        var displayedEnd = typeof(FFmpegVideoPlayer).GetField("_lastFrameEnd", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(typeof(FFmpegVideoPlayer).FullName, "_lastFrameEnd");
+        var previousVSync = QualitySettings.vSyncCount;
+        var previousFrameRate = Application.targetFrameRate;
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = 60;
+        try
+        {
+            var initialTime = _player.TimeSeconds;
+            var initialFrames = _frames;
+            var initialUpdates = UnityEngine.Time.frameCount;
+            var maximumLag = 0d;
+            _player.Play();
+            var wallClock = System.Diagnostics.Stopwatch.StartNew();
+            while (wallClock.Elapsed.TotalSeconds < 0.7)
+            {
+                yield return null;
+                var frameEnd = (double)displayedEnd.GetValue(_player)!;
+                maximumLag = Math.Max(maximumLag, _player.TimeSeconds - frameEnd);
+            }
+            _player.Pause();
+            wallClock.Stop();
+            var seconds = wallClock.Elapsed.TotalSeconds;
+            var effectiveRate = (_player.TimeSeconds - initialTime) / seconds;
+            var updateRate = (UnityEngine.Time.frameCount - initialUpdates) / seconds;
+            Debug.Log("Double-speed playback: rate=" + effectiveRate.ToString("F3") +
+                "x; Unity updates=" + updateRate.ToString("F1") +
+                " FPS; maximum presentation lag=" + maximumLag.ToString("F3") + " s");
+            Check(Math.Abs(effectiveRate - 2) <= 0.2, "double-speed clock advances at 2x within 10%: " + effectiveRate);
+            Check(_frames > initialFrames, "double-speed playback presents frames");
+            Check(maximumLag < 0.2, "displayed frames remain within 0.2 seconds of the double-speed clock: " + maximumLag);
+        }
+        finally
+        {
+            _player.Pause();
+            QualitySettings.vSyncCount = previousVSync;
+            Application.targetFrameRate = previousFrameRate;
+        }
+    }
     IEnumerator TestDecoderPreference(string path)
     {
         _player.Loop = false;
-        _player.Rate = 1;
+        _player.PlaybackRate = 1;
         _player.RequireHardwareDecoding = false;
         foreach (var preference in new[] { VideoDecoderType.Software, VideoDecoderType.Hardware })
         {
@@ -262,7 +311,7 @@ public sealed class FFmpegPlayerSmoke : MonoBehaviour
     }
     IEnumerator TestSustainedPlayback(string path)
     {
-        _player.Rate = 1;
+        _player.PlaybackRate = 1;
         _player.Loop = true;
         var prepare = _player.PreloadAsync(path);
         var start = UnityEngine.Time.realtimeSinceStartup;
@@ -294,7 +343,7 @@ public sealed class FFmpegPlayerSmoke : MonoBehaviour
         var recover = typeof(FFmpegVideoPlayer).GetMethod("RecoverInSoftware", BindingFlags.Instance | BindingFlags.NonPublic);
         Check(recover != null, "recovery fault injection entry point exists");
         _player.Loop = false;
-        _player.Rate = 1;
+        _player.PlaybackRate = 1;
         foreach (var control in new[] { "Pause", "SeekAsync", "Close" })
         {
             var prepare = _player.PreloadAsync(path);

@@ -60,7 +60,6 @@ namespace MajdataPlay.Scenes.Game
             _videoRenderer.material = _backgroundMaterial;
             _defaultScale = _coverRenderer.transform.localScale;
 
-            _videoPlayer.BufferedFrameLimit = 64;
             DisableVideo();
         }
 
@@ -100,7 +99,7 @@ namespace MajdataPlay.Scenes.Game
             {
                 return;
             }
-            _videoPlayer.SetRate(speed);
+            _videoPlayer.PlaybackRate = speed;
             if (_videoPlayer.IsSeekable)
             {
                 _videoPlayer.TimeSeconds = time;
@@ -114,7 +113,7 @@ namespace MajdataPlay.Scenes.Game
             {
                 return;
             }
-            _videoPlayer.SetRate(speed);
+            _videoPlayer.PlaybackRate = speed;
         }
 
         public void SetBackgroundPic(Sprite? sprite)

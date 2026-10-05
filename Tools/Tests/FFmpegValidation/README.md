@@ -14,6 +14,16 @@ dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
 
 覆盖：真实视频元数据、RGBA 解码、PTS、前后 seek、EOF 延迟帧排空、预取消、有界预载、连续 seek、快速关闭，以及人工 AVFrame 的像素级上下方向、四方向旋转、非方形尺寸、YUV limited/full range、动态像素格式、裁剪与超限拒绝。硬件测试创建独立 D3D11VA 设备，在没有 Unity 纹理互操作回调的情况下解码、下载 RGBA、跳转并检查真实像素，断言 `HardwareDecoded` 与 CPU 像素存储同时成立。
 
+### 解码线程过期帧淘汰
+
+```powershell
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  Assets/Plugins/MajdataPlay/FFmpeg/Native/Windows/x86_64 `
+  "Assets/StreamingAssets/MaiCharts/Original/Zunda Overdance/bg.mp4" --eviction
+```
+
+使用可 seek、长于 2 秒且帧率不低于 24 FPS 的真实素材。容量 1/3/8 的会话覆盖有界预载、不取帧时后台自动追赶与定时唤醒、预配置倍速、共享时钟的时间连续性、暂停与关闭时冻结时间、seek 立即设置目标时间、保留未来帧、连续 seek、持有呈现帧时的池容量与关闭资源归还；EOF 检查保留最后一帧直到呈现并支持回零。测试使用真实 FFmpeg 解码，`--eviction` 不要求硬件后端，也不代表 Unity 呈现或实机验证。默认真实解码模式同样运行这些检查。
+
 ### Camera 录制的托管与真实编码验证
 
 不带参数的默认测试还验证 `EncoderOptions` 的尺寸、帧率、最大软件线程数、目标/最大码率和枚举边界，以及构造时的设置快照。编译 Camera 组件需主项目已用指定 Unity Editor 完成导入，以提供 `Library/ScriptAssemblies` 中的 `Unity.Collections` 与 `Unity.RenderPipelines.Core.Runtime`；测试只引用这些程序集，不调用 Unity 的 Camera 或 GPU API。
@@ -149,6 +159,8 @@ dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
 ```
 
 隔离项目、构建输出、日志、结果、32×32 纹理读回图均保存在忽略的 `.work/`。脚本不修改主项目场景或 Player Settings。测试包括首帧预载、实际纹理像素、播放、倍速、暂停、seek、步进、停止回零、连续 seek、循环、关闭/取消。图形测试会启动隐藏的 Player，GPU 后端仍需本机驱动支持；不能加 `-nographics`。`-Hardware` 是尝试硬件路径，必须检查报告中的 `TransferMode` 与 fallback，软件回退成功不代表硬件互操作成功。`-RequireHardware` 隐含 `-Hardware` 并增加硬件路径断言，发生软件回退即失败；首次使用该选项需要重新构建包含新断言的测试 Player。
+
+倍速检查将 Unity 临时限制为 60 FPS，测量 0.7 秒内的真实时钟推进（2x，容差 10%）和每次更新的最大画面落后（小于 0.2 秒），并在日志中记录实际更新帧率。可用 120 FPS 素材、默认 3 帧队列验证高视频帧率下的后台淘汰；无需把缓存调大。该检查使用小素材时的通过结果不代表高分辨率解码吞吐已通过。
 
 硬件呈现测试还会在完成像素读回后主动释放输出纹理及存在的 GPU copy target，再步进一帧并检查恢复后的实际像素，以覆盖原生纹理指针缓存失效后的重建。
 

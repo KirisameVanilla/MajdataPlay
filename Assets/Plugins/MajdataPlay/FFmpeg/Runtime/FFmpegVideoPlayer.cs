@@ -92,8 +92,6 @@ namespace MajdataPlay.FFmpeg
         /// <summary>Stores the optional destination render texture.</summary>
         [SerializeField, FormerlySerializedAs("TargetTexture"), Tooltip("Optional output; otherwise use Texture or TextureChanged.")]
         private RenderTexture? _targetTexture;
-        /// <summary>Tracks playback position using a monotonic time source.</summary>
-        private readonly PlaybackClock _clock = new PlaybackClock();
         /// <summary>Owns the current background decoder, or null while closed.</summary>
         private VideoDecodeSession? _session;
         /// <summary>Caches the latest immutable media information snapshot.</summary>
@@ -211,7 +209,7 @@ namespace MajdataPlay.FFmpeg
         /// <remarks>Setting the position clamps it to the known timeline and completes asynchronously.</remarks>
         /// <exception cref="InvalidOperationException">The input is not prepared or seekable.</exception>
         /// <exception cref="ArgumentOutOfRangeException">The value is not finite.</exception>
-        public double TimeSeconds { get => ClampTime(_clock.Position); set => BeginSeek(value, ContinueState()); }
+        public double TimeSeconds { get => ClampTime(_session?.PlaybackPosition ?? 0); set => BeginSeek(value, ContinueState()); }
 
         /// <summary>Gets or seeks to the normalized playback position between zero and one.</summary>
         /// <remarks>The getter returns zero when duration is unknown. The setter clamps finite values to the valid range.</remarks>
@@ -238,7 +236,8 @@ namespace MajdataPlay.FFmpeg
             set
             {
                 CheckThread();
-                _clock.Rate = value;
+                PlaybackClock.ValidateRate(value);
+                _session?.SetPlayback(rate: value);
                 if (_playbackRate != value)
                 {
                     MajDebug.LogDebug("FFmpeg", "[Player] Playback rate=" + value + ".");
@@ -285,7 +284,6 @@ namespace MajdataPlay.FFmpeg
         {
             _mainThread = Thread.CurrentThread.ManagedThreadId;
             _playbackRate = float.IsNaN(_playbackRate) || float.IsInfinity(_playbackRate) ? 1 : Math.Max(0.0625f, Math.Min(16, _playbackRate));
-            _clock.Rate = _playbackRate;
         }
 
         private void Start()
@@ -368,7 +366,7 @@ namespace MajdataPlay.FFmpeg
 
                 _hardwareActive = options.HardwareDeviceType != global::FFmpeg.AutoGen.AVHWDeviceType.AV_HWDEVICE_TYPE_NONE;
                 _hardwareCpuUploadAttempted = !options.KeepNativeFrames;
-                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit);
+                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit, _playbackRate);
             }
             catch (Exception error)
             {
@@ -443,7 +441,7 @@ namespace MajdataPlay.FFmpeg
             }
 
             State = VideoPlaybackState.Playing;
-            _clock.Start();
+            _session!.SetPlayback(playing: true);
             MajDebug.LogDebug("FFmpeg", "[Player] Play at " + TimeSeconds.ToString("F3") + " s.");
             Started?.Invoke(this);
         }
@@ -465,7 +463,7 @@ namespace MajdataPlay.FFmpeg
                 return;
             }
 
-            _clock.Pause();
+            _session!.SetPlayback(playing: false);
             _waitingForFrame = false;
             State = VideoPlaybackState.Paused;
             MajDebug.LogDebug("FFmpeg", "[Player] Pause at " + TimeSeconds.ToString("F3") + " s.");
@@ -498,20 +496,6 @@ namespace MajdataPlay.FFmpeg
 
             Pause();
             _stepRequested = true;
-        }
-
-        /// <summary>Attempts to change the playback speed multiplier.</summary>
-        /// <param name="rate">A finite multiplier in the inclusive range 0.0625 to 16.</param>
-        /// <returns>True if the speed was applied; false if the value is invalid.</returns>
-        public bool SetRate(float rate)
-        {
-            if (float.IsNaN(rate) || float.IsInfinity(rate) || rate < 0.0625f || rate > 16)
-            {
-                return false;
-            }
-
-            PlaybackRate = rate;
-            return true;
         }
 
         /// <summary>Stops playback and asynchronously seeks to the beginning while retaining prepared media.</summary>
@@ -585,8 +569,6 @@ namespace MajdataPlay.FFmpeg
             _waitingForFrame = false;
             _stepRequested = false;
             _hardwareActive = false;
-            _clock.Pause();
-            _clock.Set(0);
             _lastFrameEnd = 0;
             _lastReportedTime = -1;
             _frameNumber = 0;
@@ -627,8 +609,6 @@ namespace MajdataPlay.FFmpeg
             Observe(_seekCompletion.Task);
             _seekTarget = ClampTime(seconds);
             MajDebug.LogDebug("FFmpeg", "[Player] Seek to " + _seekTarget.ToString("F3") + " s; resume=" + afterSeek + ".");
-            _clock.Pause();
-            _clock.Set(_seekTarget);
             _afterSeek = afterSeek;
             _waitingForFrame = false;
             _stepRequested = false;
@@ -697,7 +677,7 @@ namespace MajdataPlay.FFmpeg
                             // preparing session. Its frame still completes preparation;
                             // only a replacement session invalidates it.
                             revision = _controlRevision;
-                            _clock.Set(0);
+                            _session!.SetPlayback(position: 0);
                             _prepared = true;
                             State = VideoPlaybackState.Prepared;
                             MajDebug.LogInfo("FFmpeg", "[Player] Prepared; encoding=" + CodecName
@@ -760,7 +740,7 @@ namespace MajdataPlay.FFmpeg
                                 return;
                             }
 
-                            _clock.Set(frame.PresentationTime);
+                            _session!.SetPlayback(position: frame.PresentationTime);
                         }
 
                         _stepRequested = false;
@@ -791,13 +771,8 @@ namespace MajdataPlay.FFmpeg
         /// <summary>Restores the requested playback state and completes the current seek operation.</summary>
         private void FinishSeek()
         {
-            _clock.Set(_seekTarget);
             State = _afterSeek;
-            if (IsPlaying)
-            {
-                _clock.Start();
-            }
-
+            _session!.SetPlayback(position: _seekTarget, playing: IsPlaying);
             var completion = _seekCompletion;
             _seekCompletion = null;
             completion?.TrySetResult(true);
@@ -808,19 +783,12 @@ namespace MajdataPlay.FFmpeg
         /// <summary>Consumes a bounded number of due frames and handles buffering, end-of-input, and looping.</summary>
         private void AdvancePlayback()
         {
-            // Skip stale frames at high speed without holding more than the configured queue capacity.
-            DecodedVideoFrame? newest = null;
             // Update calls this only for an active session; Present rejects session replacement.
             var session = _session!;
-            var now = _clock.Position;
-            // A fast worker can refill while this loop consumes frames. Bound work per
-            // Update independently of queue capacity to keep high-rate playback responsive.
-            var budget = Math.Max(1, Math.Min(8, BufferedFrameLimit));
-            while (budget-- > 0 && session.NextPresentationTime <= now + 0.001)
-            {
-                newest?.Dispose();
-                newest = session.TakeFrame();
-            }
+            var now = session.PlaybackPosition;
+            // Select under one lock so worker-side replacement cannot race the due
+            // check or temporarily require a second presenter-owned frame container.
+            var newest = session.TakeLatestFrame(now + 0.001);
 
             if (newest != null)
             {
@@ -835,14 +803,13 @@ namespace MajdataPlay.FFmpeg
                 if (_waitingForFrame)
                 {
                     _waitingForFrame = false;
-                    _clock.Start();
+                    session.SetPlayback(playing: true);
                 }
             }
 
-            if (session.EndOfStream && _clock.Position >= _lastFrameEnd)
+            if (session.EndOfStream && session.PlaybackPosition >= _lastFrameEnd)
             {
-                _clock.Pause();
-                _clock.Set(LengthSeconds > 0 ? LengthSeconds : _lastFrameEnd);
+                session.SetPlayback(position: LengthSeconds > 0 ? LengthSeconds : _lastFrameEnd, playing: false);
                 _waitingForFrame = false;
                 State = VideoPlaybackState.Ended;
                 MajDebug.LogDebug("FFmpeg", "[Player] End reached; loop=" + Loop + ".");
@@ -852,15 +819,17 @@ namespace MajdataPlay.FFmpeg
                     BeginSeek(0, VideoPlaybackState.Playing);
                 }
             }
-            else if (session.BufferedFrames == 0 && !session.EndOfStream && now > _lastFrameEnd)
+            // A just-drained queue is refilled asynchronously; do not pause the
+            // clock until an update actually fails to obtain a due frame.
+            else if (newest == null && session.BufferedFrames == 0 && !session.EndOfStream && now > _lastFrameEnd)
             {
-                _clock.Pause();
+                session.SetPlayback(playing: false);
                 _waitingForFrame = true;
             }
             else if (_waitingForFrame && session.BufferedFrames > 0)
             {
                 _waitingForFrame = false;
-                _clock.Start();
+                session.SetPlayback(playing: true);
             }
         }
 
@@ -1048,7 +1017,7 @@ namespace MajdataPlay.FFmpeg
             _hardwareActive = hardwareCpuUpload || platformNative;
             var resume = State == VideoPlaybackState.Seeking ? _afterSeek : State;
             double position = TimeSeconds;
-            _clock.Pause();
+            _session?.SetPlayback(playing: false);
             _waitingForFrame = false;
             try
             {
@@ -1069,7 +1038,7 @@ namespace MajdataPlay.FFmpeg
                     ConfigureHardware(options, platformNative);
                 }
 
-                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit);
+                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit, _playbackRate);
                 if (_prepared && _info != null && _info.CanSeek)
                 {
                     _seekTarget = position;

@@ -40,7 +40,7 @@ namespace MajdataPlay.FFmpeg.Editor
 
             if (player.PlaybackRate != previousRate)
             {
-                player.SetRate(player.PlaybackRate);
+                player.PlaybackRate = player.PlaybackRate;
             }
 
             EditorGUILayout.Space();

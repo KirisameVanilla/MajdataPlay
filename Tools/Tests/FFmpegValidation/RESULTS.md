@@ -1,6 +1,40 @@
 # 本机验证结果
 
-最近验证日期：2026-10-05；此前跨平台矩阵执行于 2026-10-03。Windows / Unity 6000.3.17f1 / AMD Radeon RX 580 2048SP；Linux 使用本机 WSL Ubuntu 24.04；Android 真机为 Mi MIX 2S / Android 15 API 35 / Adreno 630 / Vulkan 1.1.128；Apple 构建测试使用用户提供的 Mac mini M4。当前 Windows/Linux/Android 图形桥接 ABI 为 **4**，Apple 保持 **2**；下方 ABI2/3 的记录为此前版本实测。
+最近验证日期：2026-10-06；此前跨平台矩阵执行于 2026-10-03。Windows / Unity 6000.3.17f1 / AMD Radeon RX 580 2048SP；Linux 使用本机 WSL Ubuntu 24.04；Android 真机为 Mi MIX 2S / Android 15 API 35 / Adreno 630 / Vulkan 1.1.128；Apple 构建测试使用用户提供的 Mac mini M4。当前 Windows/Linux/Android 图形桥接 ABI 为 **4**，Apple 保持 **2**；下方 ABI2/3 的记录为此前版本实测。
+
+## 2026-10-06：解码线程过期帧淘汰与共享时钟
+
+Player 与解码线程使用解码会话持有的唯一 PlaybackClock，通过会话锁读取时间与更新控制，不再每帧复制时钟位置。播放时淘汰已被较新到期帧替代的旧帧；保留未来帧和可呈现的最新到期帧。队列保持 1–8 的原容量，额外候选帧使用已有 `capacity + 2` 帧池，暂停、seek、关闭和 EOF 按各自生命周期处理。主线程原子选择最新到期帧，避免后台替换和帧池租用竞态。
+
+本轮专用素材为 `testsrc2`、320×180、120 FPS、12 秒、H.264/libx264、B 帧 2；由独立 FFmpeg 命令行生成，生产解码使用项目固定 FFmpeg 9.0.1 原生库。Unity 6000.3.17f1 / Windows x64 Mono / D3D11，倍速阶段关闭 VSync 并临时限制 Unity 为 60 FPS，保留默认 3 帧队列。
+
+| 验证 | 结果 |
+| --- | --- |
+| .NET 9 托管检查 | 71 assertions PASS，帧池预热后 4096 次租用/归还 0 B |
+| .NET 9 完整真实解码 | 534 assertions PASS；包含构造前倍速配置、倍速修改时的时间连续性、暂停/seek/关闭的共享时钟状态，以及容量 1/3/8 的后台自动追赶、定时唤醒、倍速变化、暂停、连续 seek、未来帧保留、持有呈现帧和关闭资源归还；EOF 保留末帧并可回零 |
+| Unity 软件解码 + RGBA 上传 | 29 assertions PASS；2.003x，Unity 60.8 FPS，0.7 秒采样内最大画面落后 0.002 s |
+| Unity D3D11 硬解 + GPU 转换 | 30 assertions PASS；实际原生传输，无 CPU 回读；2.003x，Unity 60.9 FPS，最大画面落后 0.005 s |
+| 同一 Player 硬件恢复 | 68 assertions PASS；模拟传输失败并检查恢复回调内的暂停、seek、关闭和重新播放；新会话使用共享时钟 |
+
+```powershell
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=320x180:rate=120:duration=12' `
+  -an -c:v libx264 -preset ultrafast -g 120 -bf 2 -pix_fmt yuv420p `
+  Tools/Tests/FFmpegValidation/.work/frame-eviction/test-120fps.mp4
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  Assets/Plugins/MajdataPlay/FFmpeg/Native/Windows/x86_64 `
+  Tools/Tests/FFmpegValidation/.work/frame-eviction/test-120fps.mp4
+./Tools/Tests/FFmpegValidation/run-unity.ps1 `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/frame-eviction `
+  -Media Tools/Tests/FFmpegValidation/.work/frame-eviction/test-120fps.mp4
+./Tools/Tests/FFmpegValidation/run-unity.ps1 `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/frame-eviction `
+  -Media Tools/Tests/FFmpegValidation/.work/frame-eviction/test-120fps.mp4 -Hardware -SkipBuild
+./Tools/Tests/FFmpegValidation/run-unity.ps1 `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/frame-eviction `
+  -Media Tools/Tests/FFmpegValidation/.work/frame-eviction/test-120fps.mp4 -TestRecovery -SkipBuild
+```
+
+素材、隔离工程和 Player 日志在忽略的 `.work/frame-eviction/`；报告在其 `x64-Mono/d3d11-software.*`、`d3d11-hardware.*`。本轮未运行高分辨率吞吐、IL2CPP、其他图形 API、Linux/macOS、Android/iOS 或实机验证；旧跨平台结果不能作为新淘汰逻辑的运行证据。当前策略仍需完整解码参考帧，并未跳过 RGBA 转换。编译存在已有第三方和验证脚本警告，无新增运行时代码编译错误。
 
 ## 2026-10-05：四种软件编码器的最终原生库
 

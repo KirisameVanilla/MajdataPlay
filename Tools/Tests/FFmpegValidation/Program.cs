@@ -25,6 +25,7 @@ static class Program
             _checks += VideoBitRateChecks.Run();
             _checks += AllocationChecks.RunManaged();
             _checks += EncodingChecks.RunManaged();
+            var eviction = args.Length == 3 && args[2] == "--eviction";
             bool av1 = args.Length == 3 && args[2] == "--av1";
             bool av1Unavailable = args.Length == 3 && args[2] == "--av1-unavailable";
             bool allocations = args.Length == 3 && args[2] == "--allocations";
@@ -35,9 +36,9 @@ static class Program
             bool uncheckedAmf = args.Length == 3 && args[2] == "--encode-unchecked-amf";
             var encodingSoftware = args.Length == 3 && args[2] == "--encode-software";
             if (args.Length != 2 && !av1 && !av1Unavailable && !allocations && !softwareAllocations
-                && !encoding && !encodingUnavailable && !encodingHardware && !uncheckedAmf && !encodingSoftware)
+                && !encoding && !encodingUnavailable && !encodingHardware && !uncheckedAmf && !encodingSoftware && !eviction)
             {
-                Console.WriteLine("PASS: " + _checks + " assertions; clock, bitrate, frame pool and encoder options; use <native-directory> <media> [--av1|--av1-unavailable|--allocations|--allocations-software], or <native-directory> <output-directory> --encode[|-unavailable|-hardware|-unchecked-amf|-software].");
+                Console.WriteLine("PASS: " + _checks + " assertions; clock, bitrate, frame pool and encoder options; use <native-directory> <media> [--av1|--av1-unavailable|--allocations|--allocations-software|--eviction], or <native-directory> <output-directory> --encode[|-unavailable|-hardware|-unchecked-amf|-software].");
                 return 0;
             }
             string native = Path.GetFullPath(args[0]);
@@ -76,6 +77,12 @@ static class Program
             {
                 TestAv1SoftwareUnavailable(Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: " + _checks + " assertions; missing AV1 software decoder is rejected before packet submission.");
+                return 0;
+            }
+            if (eviction)
+            {
+                _checks += FrameEvictionChecks.RunNative(Path.GetFullPath(args[1]));
+                Console.WriteLine("PASS: " + _checks + " assertions; worker frame eviction, bounded queues, playback controls and frame ownership.");
                 return 0;
             }
             if (av1)
@@ -488,6 +495,7 @@ static class Program
     }
     static void TestSession(string media)
     {
+        _checks += FrameEvictionChecks.RunNative(media);
         using (var session = new VideoDecodeSession(media, new DecoderOptions(), 3))
         {
             Wait(() => session.BufferedFrames == 3 || session.Error != null);
