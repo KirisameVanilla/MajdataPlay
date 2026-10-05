@@ -1,10 +1,11 @@
-install prefix            /Users/codex/codex-work/majdata-av1-20261005/Tools/FFmpeg/.build/install/macos-x64
-source path               /Users/codex/codex-work/majdata-ffmpeg-20261003/Tools/FFmpeg/.build/source
+install prefix            /Users/codex/codex-work/majdata-full-encoding-apple-20261005/Tools/FFmpeg/.build/install/macos-x64
+source path               /Users/codex/codex-work/majdata-full-encoding-apple-20261005/Tools/FFmpeg/.build/source
 C compiler                /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
 C library                 
 host C compiler           gcc
 host C library            
 ARCH                      x86 (generic)
+version string suffix     MajdataPlay-AMF-RC-v1-c0604b924b6a_MajdataPlay-X265-Params-v1-5b457330f94a
 big-endian                no
 runtime cpu detection     yes
 standalone assembly       yes
@@ -44,7 +45,8 @@ experimental features     yes
 xmllint enabled           yes
 
 External libraries:
-libdav1d                securetransport
+libaom                  libvpx                  libx265
+libdav1d                libx264                 securetransport
 
 External libraries providing hardware acceleration:
 audiotoolbox            videotoolbox
@@ -224,6 +226,9 @@ escape124               pcm_u24le
 escape130               pcm_u32be
 
 Enabled encoders:
+h263                    libvpx_vp9              mpeg4
+h264_videotoolbox       libx264
+libaom_av1              libx265
 
 Enabled hwaccels:
 av1_videotoolbox        mpeg1_videotoolbox      prores_videotoolbox
@@ -379,6 +384,8 @@ iamf                    pcm_f64le               yuv4mpegpipe
 ico                     pcm_mulaw
 
 Enabled muxers:
+avi                     mov                     webm
+matroska                mp4
 
 Enabled protocols:
 async                   httpproxy               rtmpts
@@ -420,4 +427,4 @@ Enabled indevs:
 
 Enabled outdevs:
 
-License: LGPL version 2.1 or later
+License: GPL version 3 or later

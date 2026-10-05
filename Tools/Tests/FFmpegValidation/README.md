@@ -14,6 +14,52 @@ dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
 
 覆盖：真实视频元数据、RGBA 解码、PTS、前后 seek、EOF 延迟帧排空、预取消、有界预载、连续 seek、快速关闭，以及人工 AVFrame 的像素级上下方向、四方向旋转、非方形尺寸、YUV limited/full range、动态像素格式、裁剪与超限拒绝。硬件测试创建独立 D3D11VA 设备，在没有 Unity 纹理互操作回调的情况下解码、下载 RGBA、跳转并检查真实像素，断言 `HardwareDecoded` 与 CPU 像素存储同时成立。
 
+### Camera 录制的托管与真实编码验证
+
+不带参数的默认测试还验证 `EncoderOptions` 的尺寸、帧率、最大软件线程数、目标/最大码率和枚举边界，以及构造时的设置快照。编译 Camera 组件需主项目已用指定 Unity Editor 完成导入，以提供 `Library/ScriptAssemblies` 中的 `Unity.Collections` 与 `Unity.RenderPipelines.Core.Runtime`；测试只引用这些程序集，不调用 Unity 的 Camera 或 GPU API。
+
+使用启用了编码器和输出封装器的同 ABI FFmpeg 原生库运行编码专用模式，第二个参数是输出目录，无需提供外部视频：
+
+```powershell
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  Assets/Plugins/MajdataPlay/FFmpeg/Native/Windows/x86_64 `
+  Tools/Tests/FFmpegValidation/.work/encoding --encode
+```
+
+此模式枚举实际可用的视频编码器，使用真实 `mpeg4` 软件编码器生成 64×48 与需 SIMD 行尾补齐的 78×48 MP4，再用项目真实解码器检查红/蓝上下方向、可选垂直翻转、带缺帧间隔的 PTS、完整帧数、延迟排空与稳定 EOF。额外检查设置快照、实际软件线程数不超过上限、实际编码器/Software/VBR 身份、实时压缩码率非零、硬件偏好回退原因、预取消不会生成文件、取消和打开失败后的文件句柄释放，以及创建输出时不会覆盖已有文件。MPEG4 CBR 另编码并解码 60 帧平坦画面，要求实际压缩码率接近目标，验证原生填充包产生了恒定码率；可支持 CBR 的最大码率会收紧至目标值。若库还包含 `libx264`，同时执行 Matroska 容器中 H.264 软件 CBR 的真实编码和排空验证；否则只验证该软件 CBR 请求被明确拒绝，不能将其记为 H.264 CBR 编码通过。
+
+完整软件编码 profile 使用 `--encode-software`，要求四种软件编码器全部存在，并实际编码、解码四种格式的 CBR/VBR 平坦与复杂画面，共 16 个文件。包含 H.264 CBR MP4、x265 原生非法参数拒绝、线程上限、设置快照、并发诊断读取、PTS 间隔、排空和文件所有权验证。输出目录需为本次验证准备的新目录：
+
+```powershell
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  Assets/Plugins/MajdataPlay/FFmpeg/Native/Windows/x86_64 `
+  Tools/Tests/FFmpegValidation/.work/software-recording-new --encode-software
+```
+
+将 `--encode` 换为 `--encode-hardware` 会在上述检查之外，强制要求实际 H.264 硬件编码器完成 VBR 和 CBR 两种 60 帧录制，逐帧解码检查像素方向、PTS 和帧数，并检查实际后端/模式/码率。此模式需要受支持的 GPU、驱动和对应 FFmpeg 编码器；软件回退即失败。未执行或失败时不能宣称真实硬件编码通过。
+
+AMF 录制必须加载带 `MajdataPlay-AMF-RC-v1-<补丁哈希前12位>` 版本标记的原生构建，以确认驱动接受了码率模式、VBV、target/peak bitrate 与 HRD/filler。原生补丁会检查每项 SetProperty，并在 Init 后回读最终值；详见 [AMF 补丁说明](../../FFmpeg/patches/README.md)。用旧的、仍有 AMF 编码器但不带该标记的 fixture 验证拒绝路径：
+
+```powershell
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  Tools/Tests/FFmpegValidation/.work/recording-final-native `
+  Tools/Tests/FFmpegValidation/.work/encoding-unchecked-amf --encode-unchecked-amf
+```
+
+此专用拒绝模式需要旧 AMF 构建，并且本机没有可用的其他 H.264 编码实现；本轮使用 RX 580 与不包含 libx264 的旧录制库。它检查 CBR/VBR 诊断中的补丁标记、不将 H.264 替换为 MPEG4、不创建新输出，以及已有输出字节不被覆盖。新版库应使用 `--encode-hardware` 验证正常打开与实际编码。
+
+真实编码模式也覆盖后台录制会话：GPU 等待读回与已完成队列共享固定容量，失败读回归还原缓冲区；后完成的早期帧不得被晚期帧超越；Stop 等待未完成读回并排空，取消则在 GPU 回调未到达时完成关闭，迟到回调不会重新启动会话。生成的视频还会检查缺帧间隔和完整封装尾部。
+
+当前正式原生库已包含录制能力。缺失能力模式须使用保留的历史播放专用库；它们没有任何编码器，不能将以下目录替换为当前正式插件目录：
+
+```powershell
+dotnet run --project Tools/Tests/FFmpegValidation/FFmpegValidation.csproj -- `
+  <历史播放专用Windows-x64原生库目录> `
+  Tools/Tests/FFmpegValidation/.work/encoding-unavailable --encode-unavailable
+```
+
+所有素材保存在输出目录的独立随机子目录，运行不会覆盖已有文件。上述 .NET 9 检查只验证托管配置和 FFmpeg 编码/封装/解码，不能替代 Unity Camera 最终渲染、异步 GPU 回读、场景销毁、实际硬件编码器、Mono/IL2CPP 或移动平台验证。
+
 原生后端回退测试检查 H.264 的 D3D12VA/Vulkan 硬件配置，并注入首选设备获取失败，验证严格 GPU 模式和允许 CPU 上传模式均可尝试下一硬件后端、得到正确的实际设备身份并继续 seek。此测试验证回退链，不代表已在对应原生后端完成视频解码。
 
 ### 每帧托管分配与帧所有权
@@ -175,6 +221,38 @@ Windows 使用对应 x86/x64 MinGW 编译器和 import libraries，运行时选�
 
 Android 使用对应 ARMv7/ARM64 NDK 编译器，保持与原生库相同 API/ABI；将测试程序、两个素材及同架构 `.so` 推到独立 `/data/local/tmp/` 测试目录，通过该目录的 `LD_LIBRARY_PATH` 运行，无需安装或替换正式应用。该检查验证原生库的软件解码与像素转换，不验证 Unity 生命周期、托管 ABI、纹理显示或硬件解码；动态库搜索路径的独立验证仍使用下面的 Linux 测试。
 
+### 跨平台原生录制检查
+
+[EncoderNativeSmoke.c](EncoderNativeSmoke.c) 是不依赖 Unity 的 C11 录制检查。使用同架构的固定 FFmpeg 头文件和库编译，输出目录需提前创建且不含已有同名录制文件：
+
+```bash
+cc -std=c11 -Wall -Wextra -Werror -I"$ffmpeg_prefix/include" \
+  Tools/Tests/FFmpegValidation/EncoderNativeSmoke.c \
+  -L"$ffmpeg_prefix/lib" -Wl,-rpath,"$ffmpeg_prefix/lib" \
+  -lavformat -lavcodec -lswscale -lavutil -lm -o /tmp/encoder-native-smoke
+mkdir -p /tmp/encoder-recording-output
+/tmp/encoder-native-smoke /tmp/encoder-recording-output
+# 对支持 H.264 VideoToolbox 的 macOS 设备单独检查硬件实现：
+/tmp/encoder-native-smoke /tmp/encoder-recording-output h264_videotoolbox
+```
+
+默认使用 `mpeg4`，CBR/VBR 各录制与解码 60 帧，检查实际 encoder、软件线程上限、target/min/max/VBV、RGBA 上下方向、保留时间间隔的 PTS、帧数、排空、EOF 和独占创建后的输出字节保留。MPEG4 CBR 会额外要求平坦画面最后一秒的填充码率接近目标。可选 `h264_videotoolbox` 仅用于 macOS，明确禁止软件回退，检查 constant-bit-rate 模式选项并打印实际码率；固定 iPhoneOS 包装器没有应用相同的 RequireHardware 标记，因此该可选硬件测试在 iOS 明确拒绝，默认 MPEG4 检查不受影响。此硬件测试保留最大码率检查，但没有验证恒定目标填充。初次 Apple 实测的 CBR payload 为 11,072 bit/s，目标为 200,000 bit/s，未通过最初的目标 ±20% 填充断言；接受配置与可解码不等于证明目标填充成立。具体设备、NV12 复测与限制由 Apple 验证结果记录。
+
+Linux 交付目录只保留版本化 `.so`，直接链接交付目录时使用 `-l:libavformat.so.63 -l:libavcodec.so.63 -l:libswscale.so.10 -l:libavutil.so.61`，或用原始 prefix 的无版本链接并指向交付库运行。Windows 需要同架构 import libraries 和 DLL；Android 使用同 ABI NDK 编译器，把程序、同架构 `.so` 推到独立 `/data/local/tmp/` 目录并设置该目录的 `LD_LIBRARY_PATH`；iOS Simulator 链接静态库时还需 Apple frameworks。该检查不代表 Unity Camera、GPU 读回、托管绑定或其他硬件编码器已验证。
+
+[NativeSoftwareEncoderSmoke.c](NativeSoftwareEncoderSmoke.c) 用相同编译参数验证完整软件编码 profile；它包含同目录的 `EncoderNativeSmoke.c`，只需编译前者。必须提供全新的现有输出目录。检查 `libx264`、`libx265`、`libaom-av1`、`libvpx-vp9`，每种格式分别生成 CBR/VBR 的平坦和复杂画面，共 16 个文件；逐一验证实际软件编码器、线程上限、像素方向、PTS 间隔、帧数、排空、EOF 和禁止覆盖。H.264 CBR 直接写 MP4 并检查 filler；x265 的未知参数和非法 `strict-cbr` 必须在原生打开时返回 `EINVAL`。测试打印复杂画面的码率，不把 VP9/AV1 的单遍 VBR 预算或低复杂度画面当成瞬时硬上限证明。
+
+```bash
+cc -std=c11 -Wall -Wextra -Werror -I"$ffmpeg_prefix/include" \
+  Tools/Tests/FFmpegValidation/NativeSoftwareEncoderSmoke.c \
+  -L"$ffmpeg_prefix/lib" -Wl,-rpath,"$ffmpeg_prefix/lib" \
+  -lavformat -lavcodec -lswscale -lavutil -lm -o /tmp/software-encoder-smoke
+mkdir -p /tmp/software-recording-output
+/tmp/software-encoder-smoke /tmp/software-recording-output
+```
+
+[AndroidNativeSmoke.c](AndroidNativeSmoke.c) 单独检查真实 Android 设备上的七个 FFmpeg 库与 ABI 4 桥接加载、固定版本及补丁标记、MPEG4/muxer/libdav1d/MediaCodec/Vulkan Video 构建入口，以及 AImage/AHardwareBuffer 动态符号和物理 GPU 的 AHB/SYNC_FD/FOREIGN/YCbCr 前置能力。使用对应 NDK 编译器的 `-std=gnu11 -Wall -Wextra -Werror`、固定 FFmpeg/Vulkan include 目录和 `-ldl` 编译，刻意不链接 FFmpeg；运行参数为交付库的绝对目录，并将同目录加入 `LD_LIBRARY_PATH`。该程序没有 Java VM 或 Unity 图形设备，不能证明实际 MediaCodec/Vulkan Video 解码或 GPU 图像导入已经通过。
+
 ### Linux 加载路径检查
 
 ```bash
@@ -184,3 +262,39 @@ bash Tools/Tests/FFmpegValidation/run-linux.sh
 需要 Linux x64（也可 WSL）、C 编译器、`readelf` 和 `ldd`。可依次传入绝对库目录和视频路径。测试程序仅链接 `libdl`，不在链接阶段依赖 FFmpeg；首先用绝对路径 `dlopen libavformat.so.63`，由产物自身的 `$ORIGIN` RUNPATH 解析 avcodec/avutil，然后加载其余全部七库。运行时明确移除 `LD_LIBRARY_PATH`，并检查实际加载的 avcodec 来源，避免系统安装或测试环境掩盖缺失依赖。
 
 2026-10-03 本机 WSL 结果：**PASS，144 checks**，H.264 1920×1080 实际解码 30 帧并缩放到 RGBA32，像素亮度范围 0–177，校验和 `ae2450db4c195031`。七个 staged ELF 库均检查 `$ORIGIN`。证据保存到忽略的 `.work/linux-native.txt`；程序源为 [LinuxNativeSmoke.c](LinuxNativeSmoke.c)。这项结果证明 Linux 库的加载、解封装、解码和像素转换，不代表 Linux Unity 图形显示已经实机验证。
+
+## Camera 录制 Player
+
+当前正式原生插件已包含录制 encoder/muxer，以下命令直接使用这些插件。测试使用独立的忽略目录，不修改主工程场景、Player Settings；历史播放专用库仅用于缺少能力诊断：
+
+```powershell
+./Tools/Tests/FFmpegValidation/run-unity.ps1 -Backend Mono -Architecture x64 -Graphics d3d11 `
+  -TestCameraCapture `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/camera-builtin
+./Tools/Tests/FFmpegValidation/run-unity.ps1 -Backend Mono -Architecture x64 -Graphics d3d11 `
+  -CaptureUrp `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/camera-urp
+# 验证用户报告的 H.264 软件 CBR + MP4 组合：
+./Tools/Tests/FFmpegValidation/run-unity.ps1 -Backend Mono -Architecture x64 -Graphics d3d11 `
+  -TestCameraCapture -CaptureFormat H264 -CaptureRateControl CBR `
+  -WorkDirectory Tools/Tests/FFmpegValidation/.work/camera-h264-cbr
+```
+
+`NativeDirectory` 是显式可选覆盖；已有正式库具备录制配置时省略。覆盖目录需包含七个 FFmpeg DLL；没有提供 `FFmpegUnityBridge.dll` 时保留项目的同 ABI 桥接。`-CaptureHardware` 额外要求真实 H.264 硬件 CBR，不能用软件回退通过。`-BuildOnly` 只构建，不声称 GPU/编码运行验证通过；`-SkipBuild` 必须使用与当前 fixture/pipeline 相匹配的已构建 Player。
+软件 Camera 测试可以用 `-CaptureFormat MPEG4|H264|HEVC|AV1|VP9` 和 `-CaptureRateControl CBR|VBR` 指定格式和模式；默认仍为 MPEG4/VBR，硬件测试固定 H.264 CBR。
+
+Camera fixture 通过真实离屏 Camera.Render / URP Standard RenderRequest 驱动相机，避免 Windows 隐藏窗口对显示渲染的抑制。覆盖颜色上下方向、Caller-owned RenderTexture 保留、实时编码身份/模式/码率、设置快照、停止尾部排空、重复录制、禁用后释放及预取消；还检查旧启动异常不会停止新会话，以及取消后未完成的 GPU 回读会阻止过早重启。输出红色上半、蓝色下半的 MP4，再逐帧真实解码确认；URP 额外使用 Overlay Camera 绘制绿色标记，并检查最终录制包含该标记。该测试不等于主工程显示 Camera、UI、自定义 SRP、所有图形 API 或其他目标平台全部通过。
+
+暂停回归在继续真实 Camera 渲染时检查采集停止、已有工作排空、录制时钟/丢帧冻结、同一文件和会话恢复、暂停时长不进入解码 PTS；还覆盖重复暂停/恢复、暂停后停止与取消、取消不能立即恢复、暂停源 Camera 销毁，以及 URP 暂停期间显示输出切换为显式 RenderTexture。帧率差异回归关闭相机自动渲染，以显式渲染控制源帧率，分别测试采集 120 FPS/渲染约 15 FPS 与采集 5 FPS/渲染约 30 FPS；检查没有重复补帧、较低录制帧率限制采样、PTS 保留实际时长。`.timing.txt` 保存实际渲染数、解码帧数、录制时钟、首末 PTS 和最大 PTS 间隔，不能把配置时间基准当作实际视频帧率。
+
+## Camera 录制 Inspector
+
+先用上一节 Built-in 命令准备隔离工程，再运行真实 Editor GUI 验证：
+
+```powershell
+./Tools/Tests/FFmpegValidation/run-camera-editor.ps1
+```
+
+脚本默认使用 Unity 6000.3.17f1，复用 `.work/camera-builtin/Project-x64-native-video`；`-ProjectDirectory` 只能指定本验证目录 `.work` 内的隔离工程。它使用普通 Editor 事件循环，在 `EditorWindow.OnGUI` 的真实 Layout/Repaint 中绘制 Unity 自动选择的生产 `FFmpegCameraCapturerEditor`，执行录制、Pause/Resume handler、FPS 采样、停止与多选检查。开始/停止调用 runtime API，文件选择窗口和鼠标按钮点击未自动化。窗口关闭、域重载和异步观察器的生命周期也需结合源码审查；这些检查不替代主工程场景和手动 Inspector 交互。
+
+报告与完整 Editor 日志保存在隔离工程同级的 `inspector/`，所有输出仍在忽略目录。脚本不会启动或修改主 Unity 工程。
