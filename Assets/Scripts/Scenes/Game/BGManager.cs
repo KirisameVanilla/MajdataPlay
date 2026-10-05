@@ -26,22 +26,22 @@ namespace MajdataPlay.Scenes.Game
         public bool IsVideoEnded => !_usePictureAsBackground && _videoPlayer.State == VideoPlaybackState.Ended;
 
         [SerializeField]
-        Vector3 _defaultScale;
+        private Vector3 _defaultScale;
 
         [SerializeField]
-        Image _coverRenderer = null!;
+        private Image _coverRenderer = null!;
 
         [SerializeField]
-        RawImage _videoRenderer = null!;
+        private RawImage _videoRenderer = null!;
 
         [SerializeField]
-        Sprite _defaultSprite = null!;
+        private Sprite _defaultSprite = null!;
 
-        Material _backgroundMaterial = null!;
-        FFmpegVideoPlayer _videoPlayer = null!;
-        Sprite? _videoFallback;
-        bool _usePictureAsBackground = true;
-        int _videoLoadVersion;
+        private Material _backgroundMaterial = null!;
+        private FFmpegVideoPlayer _videoPlayer = null!;
+        private Sprite? _videoFallback;
+        private bool _usePictureAsBackground = true;
+        private int _videoLoadVersion;
 
         protected override void Awake()
         {
@@ -59,10 +59,12 @@ namespace MajdataPlay.Scenes.Game
             _coverRenderer.material = _backgroundMaterial;
             _videoRenderer.material = _backgroundMaterial;
             _defaultScale = _coverRenderer.transform.localScale;
+
+            _videoPlayer.BufferedFrameLimit = 64;
             DisableVideo();
         }
 
-        void OnDestroy()
+        private void OnDestroy()
         {
             ++_videoLoadVersion;
             if (_videoPlayer != null)
@@ -187,7 +189,7 @@ namespace MajdataPlay.Scenes.Game
             }
         }
 
-        void OnVideoTextureChanged(FFmpegVideoPlayer player, Texture? texture)
+        private void OnVideoTextureChanged(FFmpegVideoPlayer player, Texture? texture)
         {
             if (_videoRenderer == null)
             {
@@ -202,7 +204,7 @@ namespace MajdataPlay.Scenes.Game
             }
         }
 
-        void OnVideoError(FFmpegVideoPlayer player, string error)
+        private void OnVideoError(FFmpegVideoPlayer player, string error)
         {
             // Preparation failures are handled by SetMovieAsync; playback failures
             // also need to restore the cover after the preload task has completed.

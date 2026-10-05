@@ -59,20 +59,20 @@ namespace MajdataPlay.FFmpeg
         [SerializeField, FormerlySerializedAs("Source"), Tooltip("Local path or FFmpeg-supported URL. Android packaged StreamingAssets must first be extracted.")]
         private string _source = "";
         /// <summary>Controls whether playback begins when the component awakens.</summary>
-        [SerializeField, FormerlySerializedAs("PlayOnAwake")]
-        private bool _playOnAwake;
-        /// <summary>Controls whether playback repeats after reaching the end.</summary>
-        [SerializeField, FormerlySerializedAs("Loop")]
-        private bool _loop;
+        [field: SerializeField, FormerlySerializedAs("PlayOnAwake")]
+        public bool PlayOnAwake { get; set; }
+        /// <summary>Gets or sets whether seekable media restarts when playback reaches its end.</summary>
+        [field: SerializeField, FormerlySerializedAs("Loop")]
+        public bool Loop { get; set; }
         /// <summary>Stores the requested playback rate.</summary>
         [SerializeField, FormerlySerializedAs("PlaybackRate"), Range(0.0625f, 16)]
         private float _playbackRate = 1;
         /// <summary>Limits the number of decoded frames buffered for presentation.</summary>
-        [SerializeField, FormerlySerializedAs("BufferedFrameLimit"), Range(1, 8)]
-        private int _bufferedFrameLimit = 3;
+        [field: SerializeField, FormerlySerializedAs("BufferedFrameLimit"), Range(1, 8)]
+        public int BufferedFrameLimit { get; set; } = 3;
         /// <summary>Sets the timeout for blocking input operations in seconds.</summary>
-        [SerializeField, FormerlySerializedAs("IOTimeoutSeconds"), Min(1)]
-        private int _ioTimeoutSeconds = 15;
+        [field: SerializeField, FormerlySerializedAs("IOTimeoutSeconds"), Min(1)]
+        public int IOTimeoutSeconds { get; set; } = 15;
         // Retain the serialized bool so existing scenes keep their decoder preference.
         /// <summary>Stores the preferred hardware decoding setting for existing scenes.</summary>
         [SerializeField, FormerlySerializedAs("PreferHardwareDecoding"), HideInInspector]
@@ -232,7 +232,7 @@ namespace MajdataPlay.FFmpeg
 
         /// <summary>Gets or sets the playback speed multiplier without changing the current position.</summary>
         /// <exception cref="ArgumentOutOfRangeException">The value is not finite or is outside the inclusive range 0.0625 to 16.</exception>
-        public float Rate
+        public float PlaybackRate
         {
             get => _playbackRate;
             set
@@ -248,8 +248,6 @@ namespace MajdataPlay.FFmpeg
             }
         }
 
-        /// <summary>Gets or sets whether seekable media restarts when playback reaches its end.</summary>
-        public bool Loop { get => _loop; set => _loop = value; }
 
         /// <summary>Gets or sets the preferred decoder backend for the next media open.</summary>
         /// <remarks>Hardware preference permits CPU upload or software fallback unless <see cref="RequireHardwareDecoding"/> is enabled.</remarks>
@@ -292,7 +290,7 @@ namespace MajdataPlay.FFmpeg
 
         private void Start()
         {
-            if (_playOnAwake && !string.IsNullOrWhiteSpace(_source) && _session == null)
+            if (PlayOnAwake && !string.IsNullOrWhiteSpace(_source) && _session == null)
             {
                 Play();
             }
@@ -351,7 +349,7 @@ namespace MajdataPlay.FFmpeg
                 _platformBackendOnly = false;
                 var options = new DecoderOptions
                 {
-                    IOTimeoutMilliseconds = Math.Max(1, _ioTimeoutSeconds) * 1000,
+                    IOTimeoutMilliseconds = Math.Max(1, IOTimeoutSeconds) * 1000,
                     RequireHardwareDecoding = _hardwareRequired,
                     AllowHardwareCpuUpload = !_hardwareRequired
                 };
@@ -370,7 +368,7 @@ namespace MajdataPlay.FFmpeg
 
                 _hardwareActive = options.HardwareDeviceType != global::FFmpeg.AutoGen.AVHWDeviceType.AV_HWDEVICE_TYPE_NONE;
                 _hardwareCpuUploadAttempted = !options.KeepNativeFrames;
-                _session = new VideoDecodeSession(NormalizeSource(_source), options, _bufferedFrameLimit);
+                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit);
             }
             catch (Exception error)
             {
@@ -512,7 +510,7 @@ namespace MajdataPlay.FFmpeg
                 return false;
             }
 
-            Rate = rate;
+            PlaybackRate = rate;
             return true;
         }
 
@@ -817,7 +815,7 @@ namespace MajdataPlay.FFmpeg
             var now = _clock.Position;
             // A fast worker can refill while this loop consumes frames. Bound work per
             // Update independently of queue capacity to keep high-rate playback responsive.
-            var budget = Math.Max(1, Math.Min(8, _bufferedFrameLimit));
+            var budget = Math.Max(1, Math.Min(8, BufferedFrameLimit));
             while (budget-- > 0 && session.NextPresentationTime <= now + 0.001)
             {
                 newest?.Dispose();
@@ -847,9 +845,9 @@ namespace MajdataPlay.FFmpeg
                 _clock.Set(LengthSeconds > 0 ? LengthSeconds : _lastFrameEnd);
                 _waitingForFrame = false;
                 State = VideoPlaybackState.Ended;
-                MajDebug.LogDebug("FFmpeg", "[Player] End reached; loop=" + _loop + ".");
+                MajDebug.LogDebug("FFmpeg", "[Player] End reached; loop=" + Loop + ".");
                 EndReached?.Invoke(this);
-                if (_loop && IsSeekable && State == VideoPlaybackState.Ended)
+                if (Loop && IsSeekable && State == VideoPlaybackState.Ended)
                 {
                     BeginSeek(0, VideoPlaybackState.Playing);
                 }
@@ -1062,7 +1060,7 @@ namespace MajdataPlay.FFmpeg
                 _reportedTransferMode = null;
                 var options = new DecoderOptions
                 {
-                    IOTimeoutMilliseconds = Math.Max(1, _ioTimeoutSeconds) * 1000,
+                    IOTimeoutMilliseconds = Math.Max(1, IOTimeoutSeconds) * 1000,
                     RequireHardwareDecoding = _hardwareRequired,
                     AllowHardwareCpuUpload = !_hardwareRequired
                 };
@@ -1071,7 +1069,7 @@ namespace MajdataPlay.FFmpeg
                     ConfigureHardware(options, platformNative);
                 }
 
-                _session = new VideoDecodeSession(NormalizeSource(_source), options, _bufferedFrameLimit);
+                _session = new VideoDecodeSession(NormalizeSource(_source), options, BufferedFrameLimit);
                 if (_prepared && _info != null && _info.CanSeek)
                 {
                     _seekTarget = position;

@@ -12,7 +12,7 @@ namespace MajdataPlay.FFmpeg.Editor
         public override void OnInspectorGUI()
         {
             var player = (FFmpegVideoPlayer)target;
-            var previousRate = player.Rate;
+            var previousRate = player.PlaybackRate;
             var previousSource = player.Url;
             DrawDefaultInspector();
             // Keep the serialized bool for existing scenes while presenting an explicit type selector.
@@ -38,9 +38,9 @@ namespace MajdataPlay.FFmpeg.Editor
                 player.Close();
             }
 
-            if (player.Rate != previousRate)
+            if (player.PlaybackRate != previousRate)
             {
-                player.SetRate(player.Rate);
+                player.SetRate(player.PlaybackRate);
             }
 
             EditorGUILayout.Space();
@@ -102,10 +102,10 @@ namespace MajdataPlay.FFmpeg.Editor
             }
 
             EditorGUI.BeginChangeCheck();
-            var rate = EditorGUILayout.Slider("Playback rate", player.Rate, 0.0625f, 16);
+            var rate = EditorGUILayout.Slider("Playback rate", player.PlaybackRate, 0.0625f, 16);
             if (EditorGUI.EndChangeCheck())
             {
-                player.Rate = rate;
+                player.PlaybackRate = rate;
             }
         }
 
