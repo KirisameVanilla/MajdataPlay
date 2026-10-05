@@ -1,8 +1,8 @@
 #nullable enable
+using MajdataPlay.Diagnostics;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using MajdataPlay.Diagnostics;
 
 namespace MajdataPlay.FFmpeg.Internal
 {
@@ -34,7 +34,7 @@ namespace MajdataPlay.FFmpeg.Internal
             /// <summary>Requests conversion of bottom-first readback rows to top-first video rows.</summary>
             public bool FlipVertically;
             /// <summary>Tracks the current buffer owner under the session lock.</summary>
-            internal BufferState State;
+            internal BufferState _state;
 
             /// <summary>Creates one fixed-size capture buffer.</summary>
             /// <param name="slot">The corresponding GPU texture index.</param>
@@ -88,7 +88,10 @@ namespace MajdataPlay.FFmpeg.Internal
         {
             _path = path;
             _options = options.ValidateAndClone();
-            if (capacity < 1 || capacity > 8) { throw new ArgumentOutOfRangeException(nameof(capacity)); }
+            if (capacity < 1 || capacity > 8)
+            {
+                throw new ArgumentOutOfRangeException(nameof(capacity));
+            }
             _frames = new CaptureFrame[capacity];
             for (var i = 0; i < capacity; i++)
             {
@@ -103,7 +106,16 @@ namespace MajdataPlay.FFmpeg.Internal
         /// <summary>Gets the task that reports fully finalized output or the recording error.</summary>
         public Task Completion => _completion.Task;
         /// <summary>Gets whether all native encoder resources have been released.</summary>
-        public bool Finished { get { lock (_gate) { return _finished; } } }
+        public bool Finished
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _finished;
+                }
+            }
+        }
         /// <summary>Gets whether the live session accepts frames and has not been stopped, failed, or canceled.</summary>
         public bool CanAcceptFrames
         {
@@ -116,23 +128,104 @@ namespace MajdataPlay.FFmpeg.Internal
             }
         }
         /// <summary>Gets the recording failure, including cancellation, or null.</summary>
-        public Exception? Error { get { lock (_gate) { return _error; } } }
+        public Exception? Error
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _error;
+                }
+            }
+        }
         /// <summary>Gets the initialized FFmpeg encoder name, or null before initialization.</summary>
-        public string? EncoderName { get { lock (_gate) { return _encoderName; } } }
+        public string? EncoderName
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _encoderName;
+                }
+            }
+        }
         /// <summary>Gets the actual encoder backend after initialization.</summary>
-        public VideoEncoderType EncoderType { get { lock (_gate) { return _encoderType; } } }
+        public VideoEncoderType EncoderType
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _encoderType;
+                }
+            }
+        }
         /// <summary>Gets the actual rate-control mode after initialization.</summary>
-        public VideoRateControlMode RateControlMode { get { lock (_gate) { return _rateControlMode; } } }
+        public VideoRateControlMode RateControlMode
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _rateControlMode;
+                }
+            }
+        }
         /// <summary>Gets the hardware fallback diagnostic, or null.</summary>
-        public string? HardwareFallbackReason { get { lock (_gate) { return _hardwareFallbackReason; } } }
+        public string? HardwareFallbackReason
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _hardwareFallbackReason;
+                }
+            }
+        }
         /// <summary>Gets the recent compressed-video rate in bits per second.</summary>
-        public long CurrentBitRate { get { lock (_gate) { return _currentBitRate; } } }
+        public long CurrentBitRate
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _currentBitRate;
+                }
+            }
+        }
         /// <summary>Gets the number of submitted video frames.</summary>
-        public long EncodedFrames { get { lock (_gate) { return _encodedFrames; } } }
+        public long EncodedFrames
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _encodedFrames;
+                }
+            }
+        }
         /// <summary>Gets the total compressed-video bytes, excluding container overhead.</summary>
-        public long BytesWritten { get { lock (_gate) { return _bytesWritten; } } }
+        public long BytesWritten
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _bytesWritten;
+                }
+            }
+        }
         /// <summary>Gets the active software codec worker count, or zero for hardware.</summary>
-        public int SoftwareThreadCount { get { lock (_gate) { return _softwareThreadCount; } } }
+        public int SoftwareThreadCount
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _softwareThreadCount;
+                }
+            }
+        }
 
         /// <summary>Reserves one free buffer without waiting for the encoder.</summary>
         /// <param name="frameIndex">The monotonic capture timestamp in frame-rate units.</param>
@@ -148,11 +241,11 @@ namespace MajdataPlay.FFmpeg.Internal
                 }
                 foreach (var frame in _frames)
                 {
-                    if (frame.State == BufferState.Free)
+                    if (frame._state == BufferState.Free)
                     {
                         frame.FrameIndex = frameIndex;
                         frame.FlipVertically = flipVertically;
-                        frame.State = BufferState.Reading;
+                        frame._state = BufferState.Reading;
                         return frame;
                     }
                 }
@@ -167,7 +260,7 @@ namespace MajdataPlay.FFmpeg.Internal
         {
             lock (_gate)
             {
-                frame.State = hasPixels && !_finished ? BufferState.Ready : BufferState.Free;
+                frame._state = hasPixels && !_finished ? BufferState.Ready : BufferState.Free;
                 Monitor.PulseAll(_gate);
             }
         }
@@ -218,7 +311,10 @@ namespace MajdataPlay.FFmpeg.Internal
                         }
                         finally
                         {
-                            lock (_gate) { frame.State = BufferState.Free; }
+                            lock (_gate)
+                            {
+                                frame._state = BufferState.Free;
+                            }
                         }
                     }
                     encoder.Complete();
@@ -227,8 +323,11 @@ namespace MajdataPlay.FFmpeg.Internal
             }
             catch (Exception error)
             {
-                lock (_gate) { _error = error; }
-                if (!(error is OperationCanceledException))
+                lock (_gate)
+                {
+                    _error = error;
+                }
+                if (error is not OperationCanceledException)
                 {
                     MajDebug.LogError("FFmpeg", "[Capturer] Encoding failed: " + error.Message);
                 }
@@ -278,7 +377,7 @@ namespace MajdataPlay.FFmpeg.Internal
                     CaptureFrame? next = null;
                     foreach (var frame in _frames)
                     {
-                        if (frame.State != BufferState.Free && (next == null || frame.FrameIndex < next.FrameIndex))
+                        if (frame._state != BufferState.Free && (next == null || frame.FrameIndex < next.FrameIndex))
                         {
                             next = frame;
                         }
@@ -287,9 +386,9 @@ namespace MajdataPlay.FFmpeg.Internal
                     {
                         return null;
                     }
-                    if (next != null && next.State == BufferState.Ready)
+                    if (next != null && next._state == BufferState.Ready)
                     {
-                        next.State = BufferState.Encoding;
+                        next._state = BufferState.Encoding;
                         return next;
                     }
                     Monitor.Wait(_gate, 50);

@@ -1,7 +1,7 @@
 #nullable enable
-using System;
 using FFmpeg.AutoGen;
 using MajdataPlay.Diagnostics;
+using System;
 
 namespace MajdataPlay.FFmpeg.Internal
 {
@@ -76,7 +76,7 @@ namespace MajdataPlay.FFmpeg.Internal
             }
 
             FFmpegVideoDecoder.ValidateDimensions(source->width, source->height, maximumPixels);
-            var quarterTurns = ((int)Math.Round(rotation / 90.0) % 4 + 4) % 4;
+            var quarterTurns = (((int)Math.Round(rotation / 90.0) % 4) + 4) % 4;
             var width = source->width;
             var height = source->height;
             var outputWidth = (quarterTurns & 1) == 0 ? width : height;
@@ -136,7 +136,7 @@ namespace MajdataPlay.FFmpeg.Internal
                         int rowBytes = checked(width * 4);
                         for (int y = 0; y < height; y++)
                         {
-                            Buffer.MemoryCopy(_rgba->data[0] + y * _rgba->linesize[0], result + (height - 1 - y) * rowBytes, rowBytes, rowBytes);
+                            Buffer.MemoryCopy(_rgba->data[0] + (y * _rgba->linesize[0]), result + ((height - 1 - y) * rowBytes), rowBytes, rowBytes);
                         }
                     }
                     else
@@ -261,7 +261,7 @@ namespace MajdataPlay.FFmpeg.Internal
                         outputHeight = width;
                     }
 
-                    destination[(outputHeight - 1 - dy) * outputWidth + dx] = ((uint*)(source + y * sourceStride))[x];
+                    destination[((outputHeight - 1 - dy) * outputWidth) + dx] = ((uint*)(source + (y * sourceStride)))[x];
                 }
             }
         }

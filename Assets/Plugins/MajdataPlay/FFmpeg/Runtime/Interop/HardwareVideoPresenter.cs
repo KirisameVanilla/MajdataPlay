@@ -339,7 +339,7 @@ namespace MajdataPlay.FFmpeg.Interop
                 return false;
             }
 
-            int rotation = ((int)Math.Round(frame.RotationDegrees / 90.0) % 4 + 4) % 4;
+            int rotation = (((int)Math.Round(frame.RotationDegrees / 90.0) % 4) + 4) % 4;
             int width = (rotation & 1) == 0 ? frame.Width : frame.Height;
             int height = (rotation & 1) == 0 ? frame.Height : frame.Width;
             EnsureTarget(ref _output, width, height, "FFmpeg video output");

@@ -1,14 +1,14 @@
 #nullable enable
+using AOT;
+using FFmpeg.AutoGen;
+using MajdataPlay.Diagnostics;
+using MajdataPlay.FFmpeg.Internal;
 using System;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using AOT;
-using FFmpeg.AutoGen;
-using MajdataPlay.Diagnostics;
-using MajdataPlay.FFmpeg.Internal;
 
 namespace MajdataPlay.FFmpeg
 {
@@ -229,7 +229,7 @@ namespace MajdataPlay.FFmpeg
                 for (var y = 0; y < Height; y++)
                 {
                     var sourceRow = flipVertically ? Height - 1 - y : y;
-                    Buffer.MemoryCopy(input + sourceRow * rowBytes, _rgba->data[0] + y * _rgba->linesize[0], rowBytes, rowBytes);
+                    Buffer.MemoryCopy(input + (sourceRow * rowBytes), _rgba->data[0] + (y * _rgba->linesize[0]), rowBytes, rowBytes);
                 }
             }
 

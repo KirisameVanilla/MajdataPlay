@@ -1,11 +1,11 @@
 #nullable enable
+using MajdataPlay.FFmpeg.Internal;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using MajdataPlay.FFmpeg.Internal;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Serialization;
@@ -116,7 +116,10 @@ namespace MajdataPlay.FFmpeg
             get => _bufferedFrameLimit;
             set
             {
-                if (value < 1 || value > 8) { throw new ArgumentOutOfRangeException(nameof(value)); }
+                if (value < 1 || value > 8)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                }
                 _bufferedFrameLimit = value;
             }
         }
@@ -194,25 +197,49 @@ namespace MajdataPlay.FFmpeg
             {
                 throw new InvalidOperationException("The capturer must be enabled and its previous recording fully stopped.");
             }
+
             cancellationToken.ThrowIfCancellationRequested();
             var camera = _targetCamera != null ? _targetCamera : GetComponent<Camera>();
-            if (camera == null) { throw new InvalidOperationException("Assign TargetCamera or attach the capturer to a Camera."); }
-            if (!SystemInfo.supportsAsyncGPUReadback) { throw new NotSupportedException("This graphics device does not support asynchronous GPU readback."); }
-            if (string.IsNullOrWhiteSpace(outputPath)) { throw new ArgumentException("Provide a local output file.", nameof(outputPath)); }
+            if (camera == null)
+            {
+                throw new InvalidOperationException("Assign TargetCamera or attach the capturer to a Camera.");
+            }
+
+            if (!SystemInfo.supportsAsyncGPUReadback)
+            {
+                throw new NotSupportedException("This graphics device does not support asynchronous GPU readback.");
+            }
+
+            if (string.IsNullOrWhiteSpace(outputPath))
+            {
+                throw new ArgumentException("Provide a local output file.", nameof(outputPath));
+            }
+
             if (!Path.IsPathRooted(outputPath) && Uri.TryCreate(outputPath, UriKind.Absolute, out _))
             {
                 throw new ArgumentException("Recording requires a local filename rather than a URL.", nameof(outputPath));
             }
+
             var path = Path.GetFullPath(outputPath);
             var options = _options.ValidateAndClone();
-            if (_bufferedFrameLimit < 1 || _bufferedFrameLimit > 8) { throw new ArgumentOutOfRangeException(nameof(BufferedFrameLimit)); }
-            if (!Enum.IsDefined(typeof(CameraReadbackOrientation), _readbackOrientation)) { throw new ArgumentOutOfRangeException(nameof(ReadbackOrientation)); }
+
+            if (_bufferedFrameLimit < 1 || _bufferedFrameLimit > 8)
+            {
+                throw new ArgumentOutOfRangeException(nameof(BufferedFrameLimit));
+            }
+
+            if (!Enum.IsDefined(typeof(CameraReadbackOrientation), _readbackOrientation))
+            {
+                throw new ArgumentOutOfRangeException(nameof(ReadbackOrientation));
+            }
+
             Unhook();
             _resources?.Close();
             if (_resources != null && !_resources.Released.IsCompleted)
             {
                 throw new InvalidOperationException("Await StopRecordingAsync before restarting while GPU readbacks are pending.");
             }
+
             _session = null;
             _activeCamera = camera;
             _activeOptions = options;
@@ -234,21 +261,43 @@ namespace MajdataPlay.FFmpeg
                     _session = session;
                     resources.Session = session;
                 }
-                catch { resources.Close(); throw; }
+                catch
+                {
+                    resources.Close();
+                    throw;
+                }
+
                 _resources = resources;
                 await session.Ready;
-                if (session != _session || State != CameraCaptureState.Preparing) { return; }
+                if (session != _session || State != CameraCaptureState.Preparing)
+                {
+                    return;
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
-                if (session.Error != null) { throw session.Error; }
-                if (!isActiveAndEnabled || camera == null) { StopRecording(); return; }
+                if (session.Error != null)
+                {
+                    throw session.Error;
+                }
+
+                if (!isActiveAndEnabled || camera == null)
+                {
+                    StopRecording();
+                    return;
+                }
+
                 if (_captureAction == null)
                 {
                     var reference = new WeakReference<FFmpegCameraCapturer>(this);
                     _captureAction = (source, commands) =>
                     {
-                        if (reference.TryGetTarget(out var capturer) && capturer != null) { capturer.Capture(source, commands); }
+                        if (reference.TryGetTarget(out var capturer) && capturer != null)
+                        {
+                            capturer.Capture(source, commands);
+                        }
                     };
                 }
+
                 Camera.onPostRender += OnCameraRendered;
                 RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
                 RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
@@ -264,8 +313,12 @@ namespace MajdataPlay.FFmpeg
                 if (session == _session)
                 {
                     StopRecording();
-                    if (!(error is OperationCanceledException)) { ReportError(error); }
+                    if (!(error is OperationCanceledException))
+                    {
+                        ReportError(error);
+                    }
                 }
+
                 throw;
             }
         }
@@ -280,6 +333,7 @@ namespace MajdataPlay.FFmpeg
             {
                 return;
             }
+
             _clock.Stop();
             _pendingSrpTexture = null;
             SetCaptureBridge(false);
@@ -296,11 +350,13 @@ namespace MajdataPlay.FFmpeg
             {
                 return;
             }
+
             if (!isActiveAndEnabled || _activeCamera == null || _session == null || !_session.CanAcceptFrames)
             {
                 StopRecording();
                 return;
             }
+
             SetCaptureBridge(GraphicsSettings.currentRenderPipeline != null && _activeCamera.targetTexture == null);
             _clock.Start();
             State = CameraCaptureState.Recording;
@@ -331,28 +387,52 @@ namespace MajdataPlay.FFmpeg
         {
             StopRecording();
             var session = _session;
-            if (session == null) { return; }
+            if (session == null)
+            {
+                return;
+            }
+
             try
             {
                 var released = _resources?.Released ?? Task.CompletedTask;
                 await Task.WhenAll(session.Completion, released);
             }
-            finally { if (session == _session) { ReportCompletion(); } }
+            finally
+            {
+                if (session == _session)
+                {
+                    ReportCompletion();
+                }
+            }
         }
 
-        private void Awake() => _mainThread = Thread.CurrentThread.ManagedThreadId;
-        private void OnDisable() => StopRecording();
-        private void OnDestroy() => StopRecording();
+        private void Awake()
+        {
+            _mainThread = Thread.CurrentThread.ManagedThreadId;
+        }
+
+        private void OnDisable()
+        {
+            StopRecording();
+        }
+
+        private void OnDestroy()
+        {
+            StopRecording();
+        }
+
         private void Update()
         {
             if (_session == null)
             {
                 return;
             }
+
             if (_activeCamera == null && (IsRecording || IsPaused))
             {
                 StopRecording();
             }
+
             if (_session.Finished)
             {
                 ReportCompletion();
@@ -363,7 +443,11 @@ namespace MajdataPlay.FFmpeg
         /// <param name="camera">The camera whose render has just completed.</param>
         private void OnCameraRendered(Camera camera)
         {
-            if (!IsRecording || GraphicsSettings.currentRenderPipeline != null || camera != _activeCamera || _resources == null) { return; }
+            if (!IsRecording || GraphicsSettings.currentRenderPipeline != null || camera != _activeCamera || _resources == null)
+            {
+                return;
+            }
+
             var commands = _resources.Commands;
             commands.Clear();
             Capture(BuiltinRenderTextureType.CameraTarget, commands);
@@ -375,7 +459,10 @@ namespace MajdataPlay.FFmpeg
         /// <param name="camera">The camera beginning a render, including temporary offscreen requests.</param>
         private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
         {
-            if (camera == _activeCamera && IsRecording) { SetCaptureBridge(camera.targetTexture == null); }
+            if (camera == _activeCamera && IsRecording)
+            {
+                SetCaptureBridge(camera.targetTexture == null);
+            }
         }
 
         /// <summary>Retains an explicit SRP target until overlays have rendered.</summary>
@@ -384,7 +471,11 @@ namespace MajdataPlay.FFmpeg
         /// <param name="camera">The camera whose rendering has completed.</param>
         private void OnEndCameraRendering(ScriptableRenderContext context, Camera camera)
         {
-            if (!IsRecording || camera != _activeCamera || camera.targetTexture == null || _resources == null || _bridgeEnabled) { return; }
+            if (!IsRecording || camera != _activeCamera || camera.targetTexture == null || _resources == null || _bridgeEnabled)
+            {
+                return;
+            }
+
             _pendingSrpTexture = camera.targetTexture;
         }
 
@@ -395,7 +486,11 @@ namespace MajdataPlay.FFmpeg
         {
             var texture = _pendingSrpTexture;
             _pendingSrpTexture = null;
-            if (!IsRecording || texture == null || _resources == null) { return; }
+            if (!IsRecording || texture == null || _resources == null)
+            {
+                return;
+            }
+
             var commands = _resources.Commands;
             commands.Clear();
             Capture(texture, commands);
@@ -406,9 +501,20 @@ namespace MajdataPlay.FFmpeg
         /// <param name="enabled">Whether the camera needs the renderer-provided display color target.</param>
         private void SetCaptureBridge(bool enabled)
         {
-            if (_bridgeEnabled == enabled || _activeCamera == null || _captureAction == null) { return; }
-            if (enabled) { CameraCaptureBridge.AddCaptureAction(_activeCamera, _captureAction); }
-            else { CameraCaptureBridge.RemoveCaptureAction(_activeCamera, _captureAction); }
+            if (_bridgeEnabled == enabled || _activeCamera == null || _captureAction == null)
+            {
+                return;
+            }
+
+            if (enabled)
+            {
+                CameraCaptureBridge.AddCaptureAction(_activeCamera, _captureAction);
+            }
+            else
+            {
+                CameraCaptureBridge.RemoveCaptureAction(_activeCamera, _captureAction);
+            }
+
             _bridgeEnabled = enabled;
         }
 
@@ -417,14 +523,27 @@ namespace MajdataPlay.FFmpeg
         /// <param name="commands">The command buffer that executes after the camera renders.</param>
         private void Capture(RenderTargetIdentifier source, CommandBuffer commands)
         {
-            if (!IsRecording || _resources == null || _session == null || _activeOptions == null) { return; }
+            if (!IsRecording || _resources == null || _session == null || _activeOptions == null)
+            {
+                return;
+            }
+
             var frameIndex = (long)(_clock.Elapsed.TotalSeconds * _activeOptions.FrameRate);
-            if (frameIndex <= _lastFrameIndex) { return; }
+            if (frameIndex <= _lastFrameIndex)
+            {
+                return;
+            }
+
             _droppedFrames += Math.Max(0, frameIndex - _lastFrameIndex - 1);
             _lastFrameIndex = frameIndex;
             var flip = _resources.FlipVertically;
             var frame = _session.TryReserve(frameIndex, flip);
-            if (frame == null) { _droppedFrames++; return; }
+            if (frame == null)
+            {
+                _droppedFrames++;
+                return;
+            }
+
             var viewport = GraphicsSettings.currentRenderPipeline == null && _activeCamera != null && _activeCamera.targetTexture == null
                 ? _activeCamera.rect : new Rect(0, 0, 1, 1);
             _resources.Record(source, commands, frame, viewport);
@@ -433,7 +552,11 @@ namespace MajdataPlay.FFmpeg
         /// <summary>Detaches render hooks without changing the camera's target or viewport.</summary>
         private void Unhook()
         {
-            if (!_hooked) { return; }
+            if (!_hooked)
+            {
+                return;
+            }
+
             Camera.onPostRender -= OnCameraRendered;
             RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
@@ -447,13 +570,28 @@ namespace MajdataPlay.FFmpeg
         /// <summary>Publishes completion once and retains the final statistics for callers.</summary>
         private void ReportCompletion()
         {
-            if (_session == null || !_session.Finished || _completionReported) { return; }
+            if (_session == null || !_session.Finished || _completionReported)
+            {
+                return;
+            }
+
             StopRecording();
-            if (_resources != null && !_resources.Released.IsCompleted) { return; }
+            if (_resources != null && !_resources.Released.IsCompleted)
+            {
+                return;
+            }
+
             _completionReported = true;
             var error = _session.Error;
-            if (error != null && !(error is OperationCanceledException)) { ReportError(error); }
-            else if (State != CameraCaptureState.Error) { State = CameraCaptureState.Stopped; }
+            if (error != null && !(error is OperationCanceledException))
+            {
+                ReportError(error);
+            }
+            else if (State != CameraCaptureState.Error)
+            {
+                State = CameraCaptureState.Stopped;
+            }
+
             Stopped?.Invoke(this);
         }
 
@@ -462,7 +600,11 @@ namespace MajdataPlay.FFmpeg
         private void ReportError(Exception error)
         {
             State = CameraCaptureState.Error;
-            if (LastError != null) { return; }
+            if (LastError != null)
+            {
+                return;
+            }
+
             LastError = error.Message;
             ErrorReceived?.Invoke(this, error.Message);
         }
@@ -507,9 +649,16 @@ namespace MajdataPlay.FFmpeg
                 _slots = new ReadbackSlot[capacity];
                 try
                 {
-                    for (var i = 0; i < capacity; i++) { _slots[i] = new ReadbackSlot(this, options.Width, options.Height); }
+                    for (var i = 0; i < capacity; i++)
+                    {
+                        _slots[i] = new ReadbackSlot(this, options.Width, options.Height);
+                    }
                 }
-                catch { Close(); throw; }
+                catch
+                {
+                    Close();
+                    throw;
+                }
             }
 
             /// <summary>Adds GPU commands for a reserved buffer.</summary>
@@ -539,20 +688,32 @@ namespace MajdataPlay.FFmpeg
             public void Close()
             {
                 _closing = true;
-                if (_pending == 0) { Release(); }
+                if (_pending == 0)
+                {
+                    Release();
+                }
             }
 
             /// <summary>Destroys all idle owned GPU resources on the Unity thread.</summary>
             private void Release()
             {
-                if (_released) { return; }
+                if (_released)
+                {
+                    return;
+                }
+
                 _released = true;
                 foreach (var slot in _slots)
                 {
-                    if (slot == null) { continue; }
+                    if (slot == null)
+                    {
+                        continue;
+                    }
+
                     slot.Texture.Release();
                     Destroy(slot.Texture);
                 }
+
                 Commands.Dispose();
                 _releasedCompletion.TrySetResult(true);
             }
@@ -579,9 +740,18 @@ namespace MajdataPlay.FFmpeg
                     _owner = owner;
                     Texture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
                     {
-                        name = "FFmpeg camera readback", antiAliasing = 1, useMipMap = false, autoGenerateMips = false
+                        name = "FFmpeg camera readback",
+                        antiAliasing = 1,
+                        useMipMap = false,
+                        autoGenerateMips = false
                     };
-                    if (!Texture.Create()) { Destroy(Texture); throw new NotSupportedException("Cannot create the camera's RGBA8 capture target."); }
+
+                    if (!Texture.Create())
+                    {
+                        Destroy(Texture);
+                        throw new NotSupportedException("Cannot create the camera's RGBA8 capture target.");
+                    }
+
                     Callback = Complete;
                 }
 
@@ -593,18 +763,36 @@ namespace MajdataPlay.FFmpeg
                     var success = false;
                     try
                     {
-                        if (frame == null) { throw new InvalidOperationException("The readback has no frame reservation."); }
-                        if (request.hasError) { throw new IOException("Asynchronous camera GPU readback failed."); }
+                        if (frame == null)
+                        {
+                            throw new InvalidOperationException("The readback has no frame reservation.");
+                        }
+
+                        if (request.hasError)
+                        {
+                            throw new IOException("Asynchronous camera GPU readback failed.");
+                        }
+
                         request.GetData<byte>().CopyTo(frame.Pixels);
                         success = true;
                     }
-                    catch (Exception error) { _owner.Session?.Fail(error); }
+                    catch (Exception error)
+                    {
+                        _owner.Session?.Fail(error);
+                    }
                     finally
                     {
-                        if (frame != null) { _owner.Session?.CompleteReadback(frame, success); }
+                        if (frame != null)
+                        {
+                            _owner.Session?.CompleteReadback(frame, success);
+                        }
+
                         Frame = null;
                         _owner._pending--;
-                        if (_owner._closing && _owner._pending == 0) { _owner.Release(); }
+                        if (_owner._closing && _owner._pending == 0)
+                        {
+                            _owner.Release();
+                        }
                     }
                 }
             }
